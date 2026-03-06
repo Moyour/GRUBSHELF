@@ -1,0 +1,52 @@
+name: Swift Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Select Xcode version
+      run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+    - name: Show Xcode version
+      run: xcodebuild -version
+
+    - name: Cache Swift Package Manager dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          FoodPanPackage/.build
+          FoodPanPackage/.swiftpm
+        key: ${{ runner.os }}-spm-${{ hashFiles('FoodPanPackage/Package.swift') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+
+    - name: Run Package Tests
+      run: |
+        cd FoodPanPackage
+        swift test --parallel
+
+    - name: Generate Test Coverage Report
+      run: |
+        cd FoodPanPackage
+        swift test --enable-code-coverage
+        xcrun llvm-cov export -format="lcov" \
+          .build/debug/FoodPanFeatureTests.xctest/Contents/MacOS/FoodPanFeatureTests \
+          -instr-profile .build/debug/codecov/default.profdata > coverage.lcov
+      continue-on-error: true
+
+    - name: Upload Coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./FoodPanPackage/coverage.lcov
+        fail_ci_if_error: false
+      continue-on-error: true
