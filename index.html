@@ -984,9 +984,14 @@ CONTENT TYPE
 - Shape length and pacing for the content type: Feed Post = full caption arc; Story = ultra-tight, one beat + CTA; Reel / Short = first line must stop the scroll; Thread = numbered or chained beats if the UI content type is Thread; Ad Copy = headline clarity + proof/benefit; Poll = end with a clear question.
 - Match platform norms: Instagram visual + community; X punchy; Facebook informative/shareable; Threads conversational, discovery-friendly (~500 chars max including hashtags for th).
 
+BANNED PHRASING (never in caption, hashtags, overlayText, or labels)
+- Do not use the word "ditch" in any form (ditch, ditching, ditched, etc.).
+- Avoid same overused "churn" hooks: "say goodbye to your…", "kiss … goodbye", "kick [it] to the curb", "junk your old…", "trash your spreadsheet", "dump your notes app" when they are empty templates — if you compare to an old habit, name the moment specifically instead.
+- Prefer concrete verbs: simplify, reset, re-sort, use what you have, plan the week, one list, see what's left, etc.
+
 QUALITY BAR
 - Penalize generic AI/marketing speak in your internal reasoning; captions should sound human and opinionated.
-- "score" (0–100) must reflect hook strength, theme fit, goal fit, and platform fit. Lower the score and list concrete problems in "issues" if copy is generic or ignores theme/goal.
+- "score" (0–100) must reflect hook strength, theme fit, goal fit, and platform fit. Lower the score and list concrete problems in "issues" if copy is generic or ignores theme/goal or if any banned phrase appears.
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -1018,7 +1023,8 @@ Rules:
 2) Variations must differ in hook strategy (do not restate the same idea with synonyms).
 3) overlayText for each variation must mirror that variation's hook energy and tie to ${theme}.
 4) Natural voice; emojis sparingly; hashtags mix #GrubShelf with discovery tags suited to ${theme}.
-5) If a platform has character limits, obey them without sounding truncated.`;
+5) If a platform has character limits, obey them without sounding truncated.
+6) Never use "ditch" or the tired hook patterns listed under BANNED PHRASING in the system prompt — including close variants and hashtag wording.`;
 
   try{
     const resp=await fetch('/api/groq',{
@@ -1560,26 +1566,10 @@ function getActiveImageUrl(){
     .sort((a,b)=>parseInt(b.style.zIndex||0)-parseInt(a.style.zIndex||0))[0];
   return img?img.src:'';
 }
-function getBufferImageAssetUrl(){
-  const raw=getActiveImageUrl();
-  const pexels=resolvePexelsUrlForBuffer(raw);
-  if(!pexels||!pexels.startsWith('https://images.pexels.com/'))return pexels||'';
-  const pk=getActivePlatKey();const sq=pk==='ig'||pk==='th';
-  const OUT_W=sq?1080:1200;const OUT_H=sq?1080:627;
-  let hiRes=pexels;
-  if(/w=\d+/.test(hiRes))hiRes=hiRes.replace(/w=\d+/,'w='+OUT_W);else hiRes=hiRes+(hiRes.includes('?')?'&':'?')+'w='+OUT_W;
-  if(/h=\d+/.test(hiRes))hiRes=hiRes.replace(/h=\d+/,'h='+OUT_H);else hiRes=hiRes+(hiRes.includes('?')?'&':'?')+'h='+OUT_H;
-  return hiRes;
-}
 async function openBufferActive(){
   const text=getActiveCaption();
   const safe=text.length>500?text.slice(0,497)+'...':text;
-  const bufferImg=getBufferImageAssetUrl();
   let addUrl='https://buffer.com/add?text='+encodeURIComponent(safe);
-  if(bufferImg&&bufferImg.startsWith('https://')){
-    const withImg=addUrl+'&url='+encodeURIComponent(bufferImg);
-    if(withImg.length<=7500)addUrl=withImg;
-  }
   /* Open Buffer synchronously while we still have transient user activation (await before open breaks mobile popups). */
   let win=null;
   try{
@@ -1597,28 +1587,7 @@ async function openBufferActive(){
     try{win.opener=null;}catch(_){}
   }
 
-  let imageCopied=false;
-  if(navigator.clipboard&&typeof ClipboardItem!=='undefined'){
-    const fetchSrc=bufferImg&&(bufferImg.startsWith('https://images.pexels.com/')?bufferImg:resolvePexelsUrlForBuffer(getActiveImageUrl()));
-    if(fetchSrc&&fetchSrc.startsWith('https://images.pexels.com/')){
-      try{
-        const r=await fetch('/api/image?url='+encodeURIComponent(fetchSrc));
-        if(r.ok){
-          const imgBlob=await r.blob();
-          const imgType=imgBlob.type&&imgBlob.type.startsWith('image/')?imgBlob.type:'image/jpeg';
-          await navigator.clipboard.write([new ClipboardItem({[imgType]:Promise.resolve(imgBlob)})]);
-          imageCopied=true;
-        }
-      }catch(e){console.warn('[buffer] image clipboard:',e);}
-    }
-  }
-  if(!imageCopied){try{await navigator.clipboard.writeText(text);}catch(_){}}
-  if(imageCopied){
-    const btn=document.getElementById('buffer-btn');
-    const pasteHint=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)?'Paste image in Buffer':'Paste image in Buffer (⌘V / Ctrl+V)';
-    if(btn){const o=btn.innerHTML;btn.innerHTML='<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> '+pasteHint;
-      setTimeout(()=>{btn.innerHTML=o;},5000);}
-  }
+  try{await navigator.clipboard.writeText(text);}catch(_){}
 }
 function copyCardCaption(btn){
   const parent=btn.closest('.ig-cap,[style*="relative"]');
@@ -1725,10 +1694,8 @@ async function scheduleActive(){
     const profileId=bufferProfiles[pk];
     const platNames={ig:'Instagram',tw:'Twitter/X',fb:'Facebook',th:'Threads'};
     if(!profileId)throw new Error('No Buffer '+(platNames[pk]||pk)+' channel found');
-    const imageUrl=getBufferImageAssetUrl();
-    const assetsPart=imageUrl?', assets: { images: [{ url: '+JSON.stringify(imageUrl)+' }] }':'';
     const igMeta=pk==='ig'?', metadata: { instagram: { type: post, shouldShareToFeed: true } }':'';
-    const mutation='mutation CreatePost { createPost(input: { text: '+JSON.stringify(text)+', channelId: '+JSON.stringify(profileId)+', schedulingType: automatic, mode: addToQueue'+assetsPart+igMeta+' }) { ... on PostActionSuccess { post { id text assets { id mimeType } } } ... on MutationError { message } } }';
+    const mutation='mutation CreatePost { createPost(input: { text: '+JSON.stringify(text)+', channelId: '+JSON.stringify(profileId)+', schedulingType: automatic, mode: addToQueue'+igMeta+' }) { ... on PostActionSuccess { post { id text } } ... on MutationError { message } } }';
     const data=await callBufferProxy(token,mutation);
     if(data?.errors)throw new Error(data.errors[0]?.message||'Buffer error');
     if(data?.data?.createPost?.message)throw new Error(data.data.createPost.message);
