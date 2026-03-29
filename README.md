@@ -25,3 +25,5 @@ Done. Vercel gives you a live URL like `grubshelf.vercel.app`.
 2. Add your Groq key (free at console.groq.com)
 3. Add your Buffer token (buffer.com → Settings → API → Create API Key)
 4. Generate a post → hit "Schedule on Instagram" → done, it goes straight to Buffer with the image
+
+Deploy test: Vercel + Git
