@@ -1,2 +1,6 @@
 .vercel
 .env*.local
+.env
+.DS_Store
+Thumbs.db
+*.log
