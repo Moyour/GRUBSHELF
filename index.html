@@ -478,6 +478,7 @@ let _collectionPromise=null;
 let _videoCollectionCache=[];
 let _videoCollectionLoaded=false;
 let _videoCollectionPromise=null;
+const _searchPhotoCache=Object.create(null);
 
 async function loadCollection(){
   if(_collectionLoaded)return;
@@ -529,6 +530,59 @@ async function loadVideoCollection(){
   return _videoCollectionPromise;
 }
 
+function _imgStopWords(){
+  return new Set(['the','and','for','are','but','not','you','all','can','was','one','our','out','day','get','has','his','how','its','may','new','now','old','see','two','way','who','did','let','put','say','she','too','use','that','this','with','from','have','been','were','said','each','which','their','will','about','into','than','then','them','these','some','what','when','make','like','just','over','such','take','your','grubshelf','app','food','meal','eat']);
+}
+function normalizeImageTerms(keywords){
+  const stop=_imgStopWords();
+  const raw=String(keywords||'').toLowerCase().replace(/#[\w-]+/g,' ');
+  const parts=raw.split(/[,\s]+/).map(s=>s.replace(/[^a-z0-9-]/g,'')).filter(s=>s.length>2&&!stop.has(s));
+  return[...new Set(parts)].slice(0,28);
+}
+function _photoTextBlob(p){
+  return[p&&p.alt,p&&p.title,p&&p.photographer,p&&(p.user&&p.user.name)].filter(Boolean).join(' ').toLowerCase();
+}
+function _videoTextBlob(v){
+  return[v&&(v.user&&v.user.name),v&&v.url].filter(Boolean).join(' ').toLowerCase();
+}
+function scorePhotoMatch(p,terms,approved){
+  let s=approved.has(String(p.id))?3:0;
+  const hay=_photoTextBlob(p);
+  if(!hay)return s;
+  for(const t of terms){
+    if(t.length<3)continue;
+    if(hay.includes(t))s+=4;
+    else if(t.length>=5){
+      const stem=t.replace(/s$/,'');
+      if(stem.length>=4&&hay.includes(stem))s+=2;
+    }
+  }
+  return s;
+}
+function scoreVideoMatch(v,terms,approved){
+  let s=approved.has(String(v.id))?3:0;
+  const hay=_videoTextBlob(v);
+  if(!hay)return s;
+  for(const t of terms){
+    if(t.length<3)continue;
+    if(hay.includes(t))s+=4;
+  }
+  return s;
+}
+function _shuffleInPlace(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    const t=arr[i];arr[i]=arr[j];arr[j]=t;
+  }
+  return arr;
+}
+function sizedPhotoSrc(pick,sq){
+  const baseUrl=pick.src?.original||pick.src?.large2x||(sq?(pick.src?.portrait||pick.src?.large):(pick.src?.landscape||pick.src?.large))||pick.src?.large||'';
+  if(!baseUrl)return'';
+  const sep=baseUrl.includes('?')?'&':'?';
+  return baseUrl+sep+'auto=compress&cs=tinysrgb&fit=crop&w='+(sq?1080:1200)+'&h='+(sq?1080:627);
+}
+
 function _bestPexelsVideoLink(videoFiles,preferPortrait){
   const files=videoFiles||[];
   if(!files.length)return'';
@@ -549,6 +603,8 @@ function pickFromVideoCollection(sq,keywords,excludeIds){
   const prefs=_getImagePrefs();
   const rejected=new Set(prefs.rejected.map(String));
   const excluded=new Set((excludeIds||[]).map(String));
+  const approved=new Set(prefs.approved.map(String));
+  const terms=normalizeImageTerms(keywords);
   const hasVF=v=>Array.isArray(v.video_files)&&v.video_files.length>0;
   let available=_videoCollectionCache.filter(v=>hasVF(v)&&!rejected.has(String(v.id))&&!excluded.has(String(v.id)));
   if(!available.length){
@@ -561,11 +617,13 @@ function pickFromVideoCollection(sq,keywords,excludeIds){
     available=_videoCollectionCache.filter(v=>!rejected.has(String(v.id)));
   }
   if(!available.length)return null;
-  for(let i=available.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
-    const t=available[i];available[i]=available[j];available[j]=t;
-  }
-  const pick=available[0];
+  const scored=available.map(v=>({v,score:scoreVideoMatch(v,terms,approved)}));
+  let maxS=0;for(const x of scored)if(x.score>maxS)maxS=x.score;
+  let pool=maxS>0?scored.filter(x=>x.score>=Math.max(1,maxS-3)):scored;
+  if(maxS>0&&pool.length<4)pool=scored.filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,24);
+  if(!pool.length)pool=scored;
+  _shuffleInPlace(pool);
+  const pick=pool[0].v;
   const preferPortrait=!!sq;
   let src=_bestPexelsVideoLink(pick.video_files,preferPortrait);
   const poster=pick.image||'';
@@ -578,6 +636,7 @@ function pickFromCollection(sq,keywords,excludeIds){
   if(!_collectionCache.length)return null;
   const prefs=_getImagePrefs();
   const rejected=new Set(prefs.rejected.map(String));
+  const approved=new Set(prefs.approved.map(String));
   const excluded=new Set((excludeIds||[]).map(String));
   let available=_collectionCache.filter(p=>!rejected.has(String(p.id))&&!excluded.has(String(p.id)));
   if(!available.length){
@@ -585,21 +644,53 @@ function pickFromCollection(sq,keywords,excludeIds){
   }
   if(!available.length)return null;
 
-  /* Uniform random shuffle — fair rotation through the whole collection (keyword scoring caused repeat bias) */
-  for(let i=available.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
-    const t=available[i];available[i]=available[j];available[j]=t;
+  const terms=normalizeImageTerms(keywords);
+  const scored=available.map(p=>({p,score:scorePhotoMatch(p,terms,approved)}));
+  let maxS=0;for(const x of scored)if(x.score>maxS)maxS=x.score;
+  let pool=maxS>0?scored.filter(x=>x.score>=Math.max(1,maxS-4)):scored;
+  if(maxS>0&&pool.length<5){
+    const alt=scored.filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,30);
+    if(alt.length)pool=alt;
   }
-  const pick=available[0];
-
-  const baseUrl=pick.src?.original||pick.src?.large2x||(sq?(pick.src?.portrait||pick.src?.large):(pick.src?.landscape||pick.src?.large))||pick.src?.large||'';
-  const sep=baseUrl.includes('?')?'&':'?';
-  const sized=baseUrl+sep+'auto=compress&cs=tinysrgb&fit=crop&w='+(sq?1080:1200)+'&h='+(sq?1080:627);
-  return{src:sized,id:pick.id,alt:pick.alt||''};
+  if(!pool.length)pool=scored;
+  _shuffleInPlace(pool);
+  const pick=pool[0].p;
+  const sized=sizedPhotoSrc(pick,sq);
+  const needsSearch=maxS<=1&&terms.length>=2;
+  return{src:sized,id:pick.id,alt:pick.alt||'',_weakMatch:!!needsSearch};
 }
 
 function pickPhoto(sq,keywords,excludeIds){
   return pickFromCollection(sq,keywords,excludeIds);
+}
+
+async function pickFromPexelsSearch(sq,keywords,excludeIds){
+  const prefs=_getImagePrefs();
+  const rejected=new Set(prefs.rejected.map(String));
+  const excluded=new Set((excludeIds||[]).map(String));
+  const terms=normalizeImageTerms(keywords);
+  const q=(terms.slice(0,5).join(' ')||String(keywords||'').split(',')[0]||'fresh vegetables groceries kitchen').trim().slice(0,120);
+  if(!q)return null;
+  const cacheKey=q+'|'+(sq?'sq':'wide');
+  let photos=_searchPhotoCache[cacheKey];
+  if(!photos){
+    try{
+      const r=await fetch('/api/pexels-search?square='+(sq?'1':'0')+'&per_page=28&q='+encodeURIComponent(q));
+      if(!r.ok)return null;
+      const d=await r.json();
+      photos=d.photos||[];
+      if(photos.length)_searchPhotoCache[cacheKey]=photos;
+    }catch(_){return null;}
+  }
+  if(!photos||!photos.length)return null;
+  let use=photos.filter(p=>!rejected.has(String(p.id))&&!excluded.has(String(p.id)));
+  if(!use.length)use=photos.filter(p=>!rejected.has(String(p.id)));
+  if(!use.length)use=photos;
+  _shuffleInPlace(use);
+  const pick=use[0];
+  const sized=sizedPhotoSrc(pick,sq);
+  if(!sized)return null;
+  return{src:sized,id:pick.id,alt:pick.alt||'',_weakMatch:false,_fromSearch:true};
 }
 
 // ── CONTROLS ──
@@ -856,12 +947,12 @@ function render(r){
 
     setTimeout(()=>{
       activePlats.forEach((pk,i)=>{
-        /* Build caption-aware image query: use AI keywords + extract key nouns from caption */
         const platCap=pk==='ig'?(v0.ig?.caption||v0.caption||''):pk==='tw'?(v0.tw?.caption||v0.caption||''):(v0.fb?.caption||v0.caption||'');
-        const foodNouns=platCap.toLowerCase().match(/\b(courgette|zucchini|carrot|broccoli|spinach|tomato|potato|onion|garlic|lemon|apple|banana|orange|strawberry|bread|pasta|rice|chicken|beef|salmon|cheese|yogurt|egg|milk|butter|flour|cereal|soup|salad|herb|basil|ginger|fridge|freezer|pantry|shelf|jar|tin|can|bag|trolley|cart|basket|receipt|budget|list|barcode|scanner)\b/g)||[];
-        const extraWord=foodNouns.length?foodNouns[0]:'';
-        const richKw=extraWord&&kw.length<40?kw+', '+extraWord:kw;
-        mountImg(pk+'-iz',pk,richKw,r._seed?r._seed+i:null,v0.overlayText||'');
+        const capAll=[v0.ig?.caption,v0.tw?.caption,v0.fb?.caption,v0.caption].filter(Boolean).join(' ');
+        const foodNouns=(capAll+platCap).toLowerCase().match(/\b(courgette|zucchini|carrot|broccoli|spinach|tomato|potato|onion|garlic|lemon|apple|banana|orange|strawberry|bread|pasta|rice|chicken|beef|salmon|cheese|yogurt|egg|milk|butter|flour|cereal|soup|salad|herb|basil|ginger|fridge|freezer|pantry|shelf|jar|tin|can|bag|trolley|cart|basket|receipt|budget|list|barcode|scanner|grocery|supermarket|shopping|waste|expire)\b/g)||[];
+        const extra=foodNouns.length?[...new Set(foodNouns)].slice(0,4).join(' '):'';
+        const visualQuery=[kw,v0.overlayText,platCap.slice(0,280),extra].filter(Boolean).join(', ');
+        mountImg(pk+'-iz',pk,visualQuery,r._seed?r._seed+i:null,v0.overlayText||'');
       });
     },80);
 
@@ -1014,12 +1105,16 @@ function mountImg(zoneId,platId,keywords,seed,overlayText){
 
 async function _loadPhoto(zoneId,zone,canvas,attr,sq,keywords,overlayText){
   const wantVideo=isVideoType();
-  try{await Promise.race([(wantVideo?loadVideoCollection():loadCollection()),new Promise(r=>setTimeout(r,6000))]);}catch(_){}
+    try{await Promise.race([(wantVideo?loadVideoCollection():loadCollection()),new Promise(r=>setTimeout(r,12000))]);}catch(_){}
 
   console.log('[img] wantVideo:',wantVideo,'loaded:',wantVideo?_videoCollectionLoaded:_collectionLoaded,'count:',wantVideo?_videoCollectionCache.length:_collectionCache.length);
 
   const shownIds=imgMap[zoneId]?._shownIds||[];
-  const photo=wantVideo?pickFromVideoCollection(sq,keywords,shownIds):pickPhoto(sq,keywords,shownIds);
+  let photo=wantVideo?pickFromVideoCollection(sq,keywords,shownIds):pickPhoto(sq,keywords,shownIds);
+  if(!wantVideo&&photo&&photo._weakMatch&&keywords&&String(keywords).trim()){
+    const alt=await pickFromPexelsSearch(sq,keywords,shownIds);
+    if(alt&&alt.src)photo=alt;
+  }
   const cacheForPool=wantVideo?_videoCollectionCache:_collectionCache;
   if(photo&&photo.videoPending&&photo.id){
     try{
@@ -1102,10 +1197,21 @@ async function _loadPhoto(zoneId,zone,canvas,attr,sq,keywords,overlayText){
 
   const ok=await new Promise(resolve=>{
     const img=document.createElement('img');
+    let triedProxy=false;
     img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .4s;z-index:2;';
     img.alt=photo.alt||'';
     img.onload=()=>{img.style.opacity='1';canvas.style.transition='opacity .3s';canvas.style.opacity='0';resolve(true);};
-    img.onerror=()=>{console.warn('[img] failed:',photo.src?.slice(0,80));try{img.remove();}catch(_){}resolve(false);};
+    img.onerror=()=>{
+      const u=img.src||'';
+      if(!triedProxy&&u.includes('images.pexels.com')){
+        triedProxy=true;
+        img.src='/api/image?url='+encodeURIComponent(u);
+        return;
+      }
+      console.warn('[img] failed:',photo.src?.slice(0,80));
+      try{img.remove();}catch(_){}
+      resolve(false);
+    };
     zone.insertBefore(img,attr);
     img.src=photo.src;
   });
