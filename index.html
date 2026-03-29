@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <title>GrubShelf Studio</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet"/>
 <style>
@@ -268,8 +268,112 @@ input[type=range]{flex:1;accent-color:var(--ac);height:3px;}
 .setting-row{display:flex;align-items:center;gap:10px;}
 .setting-lbl{font-size:11px;color:var(--tx2);flex:1;}
 
-@media(max-width:900px){.rp{display:none;}}
-@media(max-width:700px){.lp{display:none;}}
+/* ── TABLET: slightly tighter center chrome ── */
+@media (max-width:900px){
+  .cp-head{padding:12px 14px;}
+  .cp-body{padding:16px 14px;}
+  .card-wrap{max-width:100%;}
+}
+
+/* ── MOBILE: full-width stack, scrollable (do not hide panels) ── */
+@media (max-width:768px){
+  html{height:auto;-webkit-text-size-adjust:100%;}
+  body{
+    min-height:100%;
+    min-height:100dvh;
+    overflow-x:hidden;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    padding:0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+    padding-bottom:calc(12px + env(safe-area-inset-bottom));
+  }
+  .studio{
+    flex-direction:column;
+    width:100%;
+    max-width:100%;
+    min-height:min(100%,100dvh);
+    height:auto;
+    overflow:visible;
+  }
+  .lp{
+    order:2;
+    width:100%;
+    min-width:0;
+    height:auto;
+    max-height:none;
+    border-right:none;
+    border-bottom:1px solid var(--b1);
+  }
+  .cp{
+    order:1;
+    flex:1 0 auto;
+    height:auto;
+    min-height:0;
+    max-width:100%;
+  }
+  .rp{
+    order:3;
+    width:100%;
+    min-width:0;
+    height:auto;
+    max-height:none;
+    border-left:none;
+    border-top:1px solid var(--b1);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .lp-head{padding:12px 14px;}
+  .lp-body{padding:12px 14px 0;}
+  .lp-footer{
+    position:sticky;
+    bottom:0;
+    background:var(--s1);
+    border-top:1px solid var(--b1);
+    padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+    z-index:4;
+  }
+  .cp-head{
+    flex-direction:column;
+    align-items:stretch;
+    gap:10px;
+    padding:10px 12px;
+  }
+  .plat-tabs{
+    width:100%;
+    max-width:100%;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    flex-wrap:nowrap;
+    scrollbar-width:none;
+    padding-bottom:2px;
+  }
+  .plat-tabs::-webkit-scrollbar{display:none;}
+  .view-tabs{width:100%;flex-wrap:wrap;}
+  .plat-tab{
+    flex-shrink:0;
+    min-height:44px;
+    padding:8px 12px;
+    font-size:12px;
+  }
+  .view-tab{min-height:40px;padding:8px 12px;}
+  .cp-body{padding:12px 12px 24px;}
+  .card-wrap,.qbadge,.err-state{max-width:100%;}
+  .tw-card,.th-card{padding:12px;max-width:100%;}
+  .empty-state{min-height:280px;padding:2rem 1rem;}
+  .modal{
+    margin:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom));
+    max-height:calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overflow-y:auto;
+  }
+  .action-btn{min-height:44px;font-size:12px;}
+  .gen-btn{min-height:48px;font-size:15px;}
+  .type-btn,.var-btn{min-height:40px;}
+  input.key-input,select,textarea{font-size:16px;}
+}
+
+@media (max-width:380px){
+  .plat-tab span, .plat-tab{font-size:11px;}
+  .plat-tab{padding:8px 10px;}
+}
 </style>
 </head>
 <body>
