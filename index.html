@@ -109,6 +109,7 @@ input[type=range]{flex:1;accent-color:var(--ac);height:3px;}
 .plat-tab.ig.on{color:#E1306C;}
 .plat-tab.tw.on{color:#1DA1F2;}
 .plat-tab.fb.on{color:#4267B2;}
+.plat-tab.th.on{color:#101010;}
 .view-tabs{display:flex;gap:2px;}
 .view-tab{padding:5px 10px;border:none;border-radius:6px;background:transparent;color:var(--tx3);font-family:'DM Sans',sans-serif;font-size:11px;cursor:pointer;transition:all .12s;}
 .view-tab.on{background:var(--s2);color:var(--tx);}
@@ -121,11 +122,12 @@ input[type=range]{flex:1;accent-color:var(--ac);height:3px;}
 /* post cards */
 .card-wrap{width:100%;max-width:420px;}
 .ig-card,.fb-card{background:#fff;border-radius:12px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.4);}
-.tw-card{background:#fff;border-radius:12px;width:100%;max-width:460px;padding:16px;box-shadow:0 8px 40px rgba(0,0,0,.4);}
+.tw-card,.th-card{background:#fff;border-radius:12px;width:100%;max-width:460px;padding:16px;box-shadow:0 8px 40px rgba(0,0,0,.4);}
 .card-head{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid #f0f0f0;}
 .av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;}
 .av-ig,.av-fb{background:#1E3D0F;}
 .av-tw{background:#1DA1F2;}
+.av-th{background:#101010;}
 .card-un{font-size:12px;font-weight:600;color:#1C1C1E;}
 .card-sub{font-size:10px;color:#999;}
 .iz{position:relative;overflow:hidden;background:#e8f5e0;}
@@ -155,6 +157,12 @@ input[type=range]{flex:1;accent-color:var(--ac);height:3px;}
 .tw-acts{display:flex;gap:20px;padding-top:8px;border-top:1px solid #f0f0f0;}
 .tw-a{display:flex;align-items:center;gap:4px;font-size:11px;color:#999;}
 .tw-tm{font-size:10px;color:#999;margin-top:5px;}
+.th-body{font-size:13px;color:#101010;line-height:1.6;margin-bottom:10px;outline:none;position:relative;}
+.th-body[contenteditable]:focus{background:#f5f5f5;border-radius:4px;padding:4px;margin:-4px;}
+.th-ht{color:#101010;text-decoration:underline;text-underline-offset:2px;}
+.th-acts{display:flex;gap:20px;padding-top:8px;border-top:1px solid #f0f0f0;}
+.th-a{display:flex;align-items:center;gap:4px;font-size:11px;color:#999;}
+.th-tm{font-size:10px;color:#999;margin-top:5px;}
 .fb-text{padding:10px 14px 8px;font-size:13px;color:#1C1C1E;line-height:1.6;outline:none;position:relative;}
 .fb-text[contenteditable]:focus{background:#f5fff0;border-radius:4px;}
 .fb-ht{color:#4267B2;}
@@ -198,6 +206,7 @@ input[type=range]{flex:1;accent-color:var(--ac);height:3px;}
 .copy-plat-badge.ig{background:rgba(225,48,108,.15);color:#E1306C;}
 .copy-plat-badge.tw{background:rgba(29,161,242,.15);color:#1DA1F2;}
 .copy-plat-badge.fb{background:rgba(66,103,178,.15);color:#4267B2;}
+.copy-plat-badge.th{background:rgba(16,16,16,.12);color:#101010;}
 .copy-text{padding:12px 14px;font-size:12px;color:var(--tx2);line-height:1.7;white-space:pre-wrap;word-break:break-word;position:relative;padding-right:60px;}
 .copy-btn{position:absolute;top:10px;right:10px;padding:3px 8px;font-size:10px;border:1px solid var(--b2);border-radius:5px;background:var(--s2);color:var(--tx3);cursor:pointer;}
 .copy-btn:hover{color:var(--ac);border-color:var(--ac);}
@@ -298,11 +307,17 @@ input[type=range]{flex:1;accent-color:var(--ac);height:3px;}
       <div>
         <div class="ctrl-label">Goal</div>
         <select id="goal-sel">
-          <option value="Drive Downloads">Drive Downloads</option>
+          <option value="Brand Awareness">Brand Awareness</option>
           <option value="Build Community">Build Community</option>
+          <option value="Drive Downloads">Drive Downloads</option>
           <option value="Educate Users">Educate Users</option>
-          <option value="Promote Feature">Promote Feature</option>
           <option value="Increase Engagement" selected>Increase Engagement</option>
+          <option value="Promote Feature">Promote Feature</option>
+          <option value="Seasonal / Timely Push">Seasonal / Timely Push</option>
+          <option value="Social Proof &amp; Trust">Social Proof &amp; Trust</option>
+          <option value="Grow Newsletter / Waitlist">Grow Newsletter / Waitlist</option>
+          <option value="Re-engage Lapsed Users">Re-engage Lapsed Users</option>
+          <option value="Spark Saves &amp; Shares">Spark Saves &amp; Shares</option>
         </select>
       </div>
 
@@ -313,9 +328,17 @@ input[type=range]{flex:1;accent-color:var(--ac);height:3px;}
           <option value="Budget-Friendly">Budget-Friendly</option>
           <option value="Meal Prep" selected>Meal Prep</option>
           <option value="Zero Waste">Zero Waste</option>
-          <option value="Quick & Easy">Quick &amp; Easy</option>
+          <option value="Quick &amp; Easy">Quick &amp; Easy</option>
           <option value="Healthy Living">Healthy Living</option>
           <option value="Family Cooking">Family Cooking</option>
+          <option value="Pantry Organization">Pantry Organization</option>
+          <option value="Smart Shopping &amp; Lists">Smart Shopping &amp; Lists</option>
+          <option value="Food Storage &amp; Freshness">Food Storage &amp; Freshness</option>
+          <option value="Students &amp; Busy Weeks">Students &amp; Busy Weeks</option>
+          <option value="Hosting &amp; Entertaining">Hosting &amp; Entertaining</option>
+          <option value="Sustainability &amp; Local Food">Sustainability &amp; Local Food</option>
+          <option value="New Year / Fresh Start">New Year / Fresh Start</option>
+          <option value="Holiday &amp; Celebration Meals">Holiday &amp; Celebration Meals</option>
         </select>
       </div>
 
@@ -366,6 +389,10 @@ input[type=range]{flex:1;accent-color:var(--ac);height:3px;}
         <button class="plat-tab fb" id="p-fb" onclick="togglePlat('fb',this)">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
           Facebook
+        </button>
+        <button class="plat-tab th" id="p-th" onclick="togglePlat('th',this)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4C8.03 4 5.2 6.46 5.2 10.02c0 3.22 2.34 5.5 5.66 5.5 1.02 0 1.98-.26 2.8-.74.16-.1.34.04.3.23-.08.36-.18.73-.32 1.08-.24.62-.58 1.07-.98 1.35-.62.42-1.36.52-1.92.52-.18 0-.56-.03-.92-.2a1.23 1.23 0 0 1-.62-.66c-.04-.16-.18-.26-.36-.22-1.92.48-3.6.04-4.8-1.22-.2-.2-.52-.06-.56.2-.08.52-.14 1.06-.14 1.5 0 4.56 3.48 8.16 8.64 8.16 5.32 0 9.2-3.74 9.2-9.58C22.24 7.64 18.36 4 13.04 4H12zm.98 3.62c3.5 0 5.66 2.62 5.66 6.14 0 2.92-1.92 5.12-4.48 5.12-1.14 0-2.08-.5-2.58-.98-.12-.12-.34-.04-.32.18.18 1.56 1.4 2.72 3.02 2.72.34 0 .66-.06.96-.16.16-.06.32.08.28.26-.32 1.54-1.58 2.6-3.14 2.6-2.2 0-3.78-1.64-3.78-4.02 0-4.68 3.62-8.36 8.44-8.36h.9z"/></svg>
+          Threads
         </button>
       </div>
       <div class="view-tabs" id="view-tabs" style="display:none;">
@@ -488,18 +515,21 @@ async function loadCollection(){
       let all=[],page=1;
       const perPage=80;
       let totalKnown=null;
-      while(page<=60){
+      while(page<=200){
         const r=await fetch('/api/pexels-collection?per_page='+perPage+'&page='+page);
         if(!r.ok)break;
         const d=await r.json();
-        if(typeof d.total_results==='number'&&d.total_results>0)totalKnown=d.total_results;
-        if(d.media&&d.media.length)all=all.concat(d.media);
-        if(!d.media||!d.media.length)break;
+        if(totalKnown==null&&typeof d.total_results==='number'&&d.total_results>0)totalKnown=d.total_results;
+        const chunk=Array.isArray(d.media)?d.media:[];
+        if(!chunk.length)break;
+        all=all.concat(chunk);
         if(totalKnown!=null&&all.length>=totalKnown)break;
-        if(d.media.length<perPage)break;
-        page++;
+        /* Keep paging while API signals more, or total_results says we are short. */
+        if(d.next_page){page++;continue;}
+        if(totalKnown!=null&&all.length<totalKnown){page++;continue;}
+        break;
       }
-      if(all.length){_collectionCache=all;_collectionLoaded=true;console.log('Pexels collection loaded:',all.length,'photos');}
+      if(all.length){_collectionCache=all;_collectionLoaded=true;console.log('Pexels collection loaded:',all.length,'photos',totalKnown!=null?'/ total '+totalKnown:'');}
     }catch(e){console.warn('Collection load failed:',e);}
   })();
   return _collectionPromise;
@@ -513,18 +543,20 @@ async function loadVideoCollection(){
       let all=[],page=1;
       const perPage=80;
       let totalKnown=null;
-      while(page<=60){
+      while(page<=200){
         const r=await fetch('/api/pexels-collection?type=videos&per_page='+perPage+'&page='+page);
         if(!r.ok)break;
         const d=await r.json();
-        if(typeof d.total_results==='number'&&d.total_results>0)totalKnown=d.total_results;
-        if(d.media&&d.media.length)all=all.concat(d.media);
-        if(!d.media||!d.media.length)break;
+        if(totalKnown==null&&typeof d.total_results==='number'&&d.total_results>0)totalKnown=d.total_results;
+        const chunk=Array.isArray(d.media)?d.media:[];
+        if(!chunk.length)break;
+        all=all.concat(chunk);
         if(totalKnown!=null&&all.length>=totalKnown)break;
-        if(d.media.length<perPage)break;
-        page++;
+        if(d.next_page){page++;continue;}
+        if(totalKnown!=null&&all.length<totalKnown){page++;continue;}
+        break;
       }
-      if(all.length){_videoCollectionCache=all;_videoCollectionLoaded=true;console.log('Pexels video collection loaded:',all.length,'videos');}
+      if(all.length){_videoCollectionCache=all;_videoCollectionLoaded=true;console.log('Pexels video collection loaded:',all.length,'videos',totalKnown!=null?'/ total '+totalKnown:'');}
     }catch(e){console.warn('Video collection load failed:',e);}
   })();
   return _videoCollectionPromise;
@@ -790,12 +822,40 @@ async function generate(){
   const kw=(kwEl&&kwEl.value||'').trim()||'fresh vegetables grocery';
   if(!selectedPlats.length)selectedPlats=['ig'];
 
-  const platNames={ig:'Instagram',tw:'Twitter/X',fb:'Facebook'};
+  const platNames={ig:'Instagram',tw:'Twitter/X',fb:'Facebook',th:'Threads'};
   const platList=selectedPlats.map(p=>platNames[p]||p).join(', ');
 
-  const systemPrompt=`You are a social media copywriter for GrubShelf — a smart grocery management and pantry tracker app available on iOS. GrubShelf helps users track pantry items, reduce food waste, plan meals, manage shopping lists, and save money on groceries.
+  const systemPrompt=`You are a senior social copywriter for GrubShelf — a smart grocery management and pantry tracker app on iOS (pantry tracking, less waste, meal planning, shopping lists, saving money).
 
-You write captions that are authentic, concise, and engaging. Match the tone to the platform: Instagram is visual and community-driven, Twitter/X is punchy and conversational, Facebook is informative and shareable.
+CREATIVITY & ATTENTION
+- Open every caption with a scroll-stopping hook: contrast, a tiny story, a bold claim, a "you" moment, or a vivid kitchen/grocery image — not a plain product intro.
+- Be specific: name situations people recognize (forgotten veg in the drawer, duplicate buys, Sunday prep, receipt shock). Avoid vague lines like "streamline your kitchen" or "take control of your groceries."
+- Each variation must feel like a different creative angle (e.g. one humorous, one myth-bust, one shortcut, one emotional "waste guilt" — vary the hook style across variations).
+- overlayText must punch hard: memorable phrase that matches the same theme and goal as the caption (max 8 words).
+
+GOAL → COPY FOCUS (execute the user's stated Goal explicitly; infer tactics for any goal name if unsure)
+- Brand Awareness: bold, memorable angle on the category (kitchen chaos, grocery pain); GrubShelf as the name they remember, not a feature dump.
+- Build Community: questions, "we/us," relatable rants or wins; invite comments or shares of their own habits.
+- Drive Downloads: clear outcome first; low-friction CTA (App Store, link in bio, "grab GrubShelf"); no wall of features.
+- Educate Users: one sharp insight, mini-tip, or "did you know" tied to pantries, lists, or waste — lively, not a manual.
+- Increase Engagement: hot take, poll-style question, or checklist energy that drives replies.
+- Promote Feature: one concrete scenario showing how that capability saves time, money, or stress; benefit-led, not jargon.
+- Seasonal / Timely Push: hook on the moment (holiday table, heat wave, back-to-school, resolution season) tied to groceries/pantry.
+- Social Proof & Trust: credible, human proof voice — tips "from someone who finally organized the shelf" energy; never invent fake testimonials or star ratings.
+- Grow Newsletter / Waitlist: curiosity or value tease + soft signup CTA; still GrubShelf-aligned (tips, pantry hacks) not spammy.
+- Re-engage Lapsed Users: gentle nudge, fresh start, "that shelf is still there" — motivating, not guilt-tripping.
+- Spark Saves & Shares: highly quotable hook, listicle, or "send this to someone" framing optimized for saves and forwards.
+
+THEME (non-negotiable)
+- The user's Theme must show up in word choice, examples, or emotional framing — not a single throwaway tag. Examples: Budget-Friendly → money, receipts, unit prices; Zero Waste → use what you have, dates, scraps; Meal Prep → batching, containers, week rhythm; Pantry Organization → shelves, visibility, duplicates; Smart Shopping & Lists → impulse buys, one list, checkout stress; Food Storage & Freshness → wilting, freezer, labels; Students & Busy Weeks → dorms, exams, cheap staples; Hosting & Entertaining → guests, portions, prep ahead; Sustainability & Local → seasonality, less packaging; New Year / Fresh Start or Holiday & Celebration → tie hooks explicitly to that calendar vibe.
+
+CONTENT TYPE
+- Shape length and pacing for the content type: Feed Post = full caption arc; Story = ultra-tight, one beat + CTA; Reel / Short = first line must stop the scroll; Thread = numbered or chained beats if the UI content type is Thread; Ad Copy = headline clarity + proof/benefit; Poll = end with a clear question.
+- Match platform norms: Instagram visual + community; X punchy; Facebook informative/shareable; Threads conversational, discovery-friendly (~500 chars max including hashtags for th).
+
+QUALITY BAR
+- Penalize generic AI/marketing speak in your internal reasoning; captions should sound human and opinionated.
+- "score" (0–100) must reflect hook strength, theme fit, goal fit, and platform fit. Lower the score and list concrete problems in "issues" if copy is generic or ignores theme/goal.
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -805,6 +865,7 @@ Return ONLY valid JSON with this exact structure:
       "ig": { "caption": "Instagram caption text", "hashtags": "#Tag1 #Tag2 ..." },
       "tw": { "caption": "Twitter caption (under 280 chars including hashtags)", "hashtags": "#Tag1 #Tag2" },
       "fb": { "caption": "Facebook caption text", "hashtags": "#Tag1 #Tag2 #Tag3" },
+      "th": { "caption": "Threads caption (under 500 chars including hashtags)", "hashtags": "#Tag1 #Tag2" },
       "overlayText": "short punchy text for image overlay (max 8 words)"
     }
   ],
@@ -813,14 +874,20 @@ Return ONLY valid JSON with this exact structure:
   "imageKeywords": "2-4 word image search query related to the caption content"
 }`;
 
-  const userPrompt=`Create ${nVars} social media caption variation(s) for GrubShelf.
+  const userPrompt=`Create ${nVars} distinct caption variation(s) for GrubShelf.
 
-Goal: ${goal}
-Theme: ${theme}
-Content type: ${cType}
-Platforms: ${platList}
+Locked context (every line of copy must actively serve these — do not write generic pantry app filler):
+- Goal: ${goal} — structure each caption so this goal is obviously the point (CTA, question, education, community, or feature story as appropriate).
+- Theme: ${theme} — weave this theme through examples, metaphors, or word choice; someone reading should feel "${theme}" without you repeating the label awkwardly.
+- Content type: ${cType} — match pacing and format to this type.
+- Platforms (write full platform blocks for each): ${platList}
 
-Make each variation distinct in angle/hook. Captions should feel natural, not salesy. Include relevant emojis sparingly. Hashtags should mix branded (#GrubShelf) with discovery tags.`;
+Rules:
+1) First sentence of each platform caption = strongest possible hook; no "Meet GrubShelf" or "Introducing" opens.
+2) Variations must differ in hook strategy (do not restate the same idea with synonyms).
+3) overlayText for each variation must mirror that variation's hook energy and tie to ${theme}.
+4) Natural voice; emojis sparingly; hashtags mix #GrubShelf with discovery tags suited to ${theme}.
+5) If a platform has character limits, obey them without sounding truncated.`;
 
   try{
     const resp=await fetch('/api/groq',{
@@ -917,16 +984,16 @@ function render(r){
     activePlats.forEach(pk=>{
       const v={
         caption:(v0[pk]&&v0[pk].caption)||v0.caption||'',
-        hashtags:(v0[pk]&&v0[pk].hashtags)||(pk==='ig'?v0.hashtags:pk==='fb'?v0.hashtags:'')||''
+        hashtags:(v0[pk]&&v0[pk].hashtags)||(pk==='ig'?v0.hashtags:pk==='fb'?v0.hashtags:pk==='th'?v0.hashtags:'')||''
       };
       const wrap=document.createElement('div');
       wrap.className='card-wrap';
-      wrap.innerHTML=pk==='ig'?igCard(v):pk==='tw'?twCard(v):fbCard(v);
+      wrap.innerHTML=pk==='ig'?igCard(v):pk==='tw'?twCard(v):pk==='th'?thCard(v):fbCard(v);
       w.appendChild(wrap);
     });
 
     // best time
-    if(r.igBestTime||r.twBestTime||r.fbBestTime){
+    if(r.igBestTime||r.twBestTime||r.fbBestTime||r.thBestTime){
       const tc=document.createElement('div');
       tc.style.cssText='display:flex;flex-wrap:wrap;gap:8px;max-width:420px;width:100%;';
       activePlats.forEach(pk=>{
@@ -947,8 +1014,8 @@ function render(r){
 
     setTimeout(()=>{
       activePlats.forEach((pk,i)=>{
-        const platCap=pk==='ig'?(v0.ig?.caption||v0.caption||''):pk==='tw'?(v0.tw?.caption||v0.caption||''):(v0.fb?.caption||v0.caption||'');
-        const capAll=[v0.ig?.caption,v0.tw?.caption,v0.fb?.caption,v0.caption].filter(Boolean).join(' ');
+        const platCap=pk==='ig'?(v0.ig?.caption||v0.caption||''):pk==='tw'?(v0.tw?.caption||v0.caption||''):pk==='th'?(v0.th?.caption||v0.caption||''):(v0.fb?.caption||v0.caption||'');
+        const capAll=[v0.ig?.caption,v0.tw?.caption,v0.th?.caption,v0.fb?.caption,v0.caption].filter(Boolean).join(' ');
         const foodNouns=(capAll+platCap).toLowerCase().match(/\b(courgette|zucchini|carrot|broccoli|spinach|tomato|potato|onion|garlic|lemon|apple|banana|orange|strawberry|bread|pasta|rice|chicken|beef|salmon|cheese|yogurt|egg|milk|butter|flour|cereal|soup|salad|herb|basil|ginger|fridge|freezer|pantry|shelf|jar|tin|can|bag|trolley|cart|basket|receipt|budget|list|barcode|scanner|grocery|supermarket|shopping|waste|expire)\b/g)||[];
         const extra=foodNouns.length?[...new Set(foodNouns)].slice(0,4).join(' '):'';
         const visualQuery=[kw,v0.overlayText,platCap.slice(0,280),extra].filter(Boolean).join(', ');
@@ -968,7 +1035,7 @@ function render(r){
         const enc=encodeURIComponent(cap+(ht?'\n\n'+ht:''));
         const bl=document.createElement('div');
         bl.className='copy-block';
-        bl.innerHTML='<div class="copy-block-head"><div class="copy-block-lbl">Variation '+(i+1)+' — '+esc(v.label||'Option '+(i+1))+'</div><span class="copy-plat-badge '+pk+'">'+{ig:'Instagram',tw:'Twitter',fb:'Facebook'}[pk]+'</span></div>'
+        bl.innerHTML='<div class="copy-block-head"><div class="copy-block-lbl">Variation '+(i+1)+' — '+esc(v.label||'Option '+(i+1))+'</div><span class="copy-plat-badge '+pk+'">'+{ig:'Instagram',tw:'Twitter',fb:'Facebook',th:'Threads'}[pk]+'</span></div>'
           +'<div class="copy-text">'+esc(cap)+'<button class="copy-btn" onclick="doCopy(this,\''+enc+'\')">Copy</button></div>'
           +(ht?'<div class="ht-text">'+esc(ht)+'</div>':'');
         w.appendChild(bl);
@@ -1059,6 +1126,17 @@ function twCard(v){
     +'<div class="tw-acts"><div class="tw-a"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Reply</div>'
     +'<div class="tw-a"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>Like</div></div>'
     +'<div class="tw-tm">Just now</div></div>';
+}
+function thCard(v){
+  return '<div class="th-card">'
+    +'<div class="card-head" style="border:none;padding:0 0 10px;"><div class="av av-th">GS</div><div><div class="card-un">GrubShelf</div><div class="card-sub">@grubshelf · now</div></div></div>'
+    +'<div style="position:relative;">'
+    +'<button class="copy-cap-btn" style="top:0;right:0;" onclick="copyCardCaption(this)" title="Copy"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></button>'
+    +'<div class="th-body" contenteditable="true" spellcheck="false">'+esc(v.caption||'')+' <span class="th-ht">'+esc(v.hashtags||'')+'</span></div></div>'
+    +'<div class="iz wd rnd" id="th-iz"></div>'
+    +'<div class="th-acts"><div class="th-a"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Reply</div>'
+    +'<div class="th-a"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>Like</div></div>'
+    +'<div class="th-tm">now</div></div>';
 }
 function fbCard(v){
   return '<div class="fb-card">'
@@ -1239,9 +1317,10 @@ function approveImage(zoneId){
   let id=imgMap[zoneId]?.currentPhotoId;
   if(id!=null)id=String(id);
   if(!id){
-    const img=[...zone.querySelectorAll('img')].filter(i=>i.src&&i.src.includes('pexels')).sort((a,b)=>parseInt(b.style.zIndex||0)-parseInt(a.style.zIndex||0))[0];
+    const img=[...zone.querySelectorAll('img')].filter(i=>i.src&&(i.src.includes('pexels')||i.src.includes('/api/image'))).sort((a,b)=>parseInt(b.style.zIndex||0)-parseInt(a.style.zIndex||0))[0];
     if(!img)return;
-    const m=img.src.match(/photos\/(\d+)\//);id=m?m[1]:null;if(!id)return;
+    const inner=resolvePexelsUrlForBuffer(img.src);
+    const m=inner.match(/photos\/(\d+)\//);id=m?m[1]:null;if(!id)return;
   }
   const prefs=_getImagePrefs();
   if(!prefs.approved.includes(id))prefs.approved.push(id);
@@ -1254,9 +1333,10 @@ function rejectImage(zoneId){
   let id=imgMap[zoneId]?.currentPhotoId;
   if(id!=null)id=String(id);
   if(!id){
-    const img=[...zone.querySelectorAll('img')].filter(i=>i.src&&i.src.includes('pexels')).sort((a,b)=>parseInt(b.style.zIndex||0)-parseInt(a.style.zIndex||0))[0];
+    const img=[...zone.querySelectorAll('img')].filter(i=>i.src&&(i.src.includes('pexels')||i.src.includes('/api/image'))).sort((a,b)=>parseInt(b.style.zIndex||0)-parseInt(a.style.zIndex||0))[0];
     if(!img)return;
-    const m=img.src.match(/photos\/(\d+)\//);id=m?m[1]:null;if(!id)return;
+    const inner=resolvePexelsUrlForBuffer(img.src);
+    const m=inner.match(/photos\/(\d+)\//);id=m?m[1]:null;if(!id)return;
   }
   const p=_getImagePrefs();if(!p.rejected.includes(id))p.rejected.push(id);p.approved=p.approved.filter(a=>a!==id);_saveImagePrefs(p);
   showImgBadge(zone,'bad','✗ Removed');
@@ -1280,7 +1360,7 @@ function getActiveCaption(){
   const cap=(v0[pk]&&v0[pk].caption)||v0.caption||'';
   const ht=(v0[pk]&&v0[pk].hashtags)||(pk!=='tw'?v0.hashtags:'')||'';
   const zone=document.getElementById(pk+'-iz');
-  const card=zone?zone.closest('.ig-card,.tw-card,.fb-card'):null;
+  const card=zone?zone.closest('.ig-card,.tw-card,.th-card,.fb-card'):null;
   if(card){
     if(pk==='ig'){
       const igCt=card.querySelector('.ig-ct');const igHtEl=card.querySelector('.ig-ht');
@@ -1288,6 +1368,8 @@ function getActiveCaption(){
       if(c||h)return c+(h?'\n\n'+h:'');
     }else if(pk==='tw'){
       const tb=card.querySelector('.tw-body');if(tb&&tb.innerText.trim())return tb.innerText.trim();
+    }else if(pk==='th'){
+      const tb=card.querySelector('.th-body');if(tb&&tb.innerText.trim())return tb.innerText.trim();
     }else if(pk==='fb'){
       const ft=card.querySelector('.fb-text');if(ft&&ft.innerText.trim())return ft.innerText.trim();
     }
@@ -1301,6 +1383,30 @@ function copyActiveCaption(){
     const o=btn.innerHTML;btn.innerHTML=btn.innerHTML.replace('Copy caption','Copied!');btn.classList.add('done');
     setTimeout(()=>{btn.innerHTML=o;btn.classList.remove('done');},2000);
   }).catch(()=>alert('Copy manually.'));
+}
+function _absoluteUrl(u){
+  try{
+    if(!u)return'';
+    const s=String(u).trim();
+    if(s.startsWith('http://')||s.startsWith('https://'))return s;
+    if(s.startsWith('/'))return new URL(s,window.location.origin).href;
+  }catch(_){}
+  return String(u||'');
+}
+/** Pexels CDN URL Buffer can fetch (unwrap our /api/image proxy if needed). */
+function resolvePexelsUrlForBuffer(raw){
+  if(!raw)return'';
+  const abs=_absoluteUrl(raw);
+  try{
+    const p=new URL(abs);
+    const path=p.pathname||'';
+    if(path.endsWith('/api/image')||path==='/api/image'){
+      const inner=p.searchParams.get('url');
+      if(inner&&(inner.startsWith('https://images.pexels.com/')||inner.startsWith('http://images.pexels.com/')))return inner;
+    }
+  }catch(_){}
+  if(abs.includes('images.pexels.com'))return abs;
+  return abs;
 }
 function getActiveImageUrl(){
   if(!result)return '';
@@ -1316,33 +1422,57 @@ function getActiveImageUrl(){
     if(vid.src)return vid.src;
   }
   const img=[...zone.querySelectorAll('img')]
-    .filter(i=>i.src&&i.src.includes('pexels'))
+    .filter(i=>{
+      const s=i.src||'';
+      return s&&(s.includes('pexels')||s.includes('/api/image'));
+    })
     .sort((a,b)=>parseInt(b.style.zIndex||0)-parseInt(a.style.zIndex||0))[0];
   return img?img.src:'';
 }
 function getBufferImageAssetUrl(){
   const raw=getActiveImageUrl();
-  if(!raw)return '';
-  const pk=getActivePlatKey();const sq=pk==='ig';
+  const pexels=resolvePexelsUrlForBuffer(raw);
+  if(!pexels||!pexels.startsWith('https://images.pexels.com/'))return pexels||'';
+  const pk=getActivePlatKey();const sq=pk==='ig'||pk==='th';
   const OUT_W=sq?1080:1200;const OUT_H=sq?1080:627;
-  let hiRes=raw;
+  let hiRes=pexels;
   if(/w=\d+/.test(hiRes))hiRes=hiRes.replace(/w=\d+/,'w='+OUT_W);else hiRes=hiRes+(hiRes.includes('?')?'&':'?')+'w='+OUT_W;
   if(/h=\d+/.test(hiRes))hiRes=hiRes.replace(/h=\d+/,'h='+OUT_H);else hiRes=hiRes+(hiRes.includes('?')?'&':'?')+'h='+OUT_H;
-  // Direct HTTPS URL — Buffer fetches server-side (same pattern as Buffer Unsplash docs). Avoid proxy layer quirks.
   return hiRes;
 }
-function openBufferActive(){
+async function openBufferActive(){
   const text=getActiveCaption();
   const safe=text.length>500?text.slice(0,497)+'...':text;
-  const addUrl='https://buffer.com/add?text='+encodeURIComponent(safe);
-  navigator.clipboard.writeText(text)
-    .then(()=>window.open(addUrl,'_blank','noopener'))
-    .catch(()=>window.open(addUrl,'_blank','noopener'));
+  const bufferImg=getBufferImageAssetUrl();
+  let addUrl='https://buffer.com/add?text='+encodeURIComponent(safe);
+  if(bufferImg&&bufferImg.startsWith('https://'))addUrl+=('&url='+encodeURIComponent(bufferImg));
+  let imageCopied=false;
+  if(navigator.clipboard&&typeof ClipboardItem!=='undefined'){
+    const fetchSrc=bufferImg&&(bufferImg.startsWith('https://images.pexels.com/')?bufferImg:resolvePexelsUrlForBuffer(getActiveImageUrl()));
+    if(fetchSrc&&fetchSrc.startsWith('https://images.pexels.com/')){
+      try{
+        const r=await fetch('/api/image?url='+encodeURIComponent(fetchSrc));
+        if(r.ok){
+          const imgBlob=await r.blob();
+          const imgType=imgBlob.type&&imgBlob.type.startsWith('image/')?imgBlob.type:'image/jpeg';
+          await navigator.clipboard.write([new ClipboardItem({[imgType]:Promise.resolve(imgBlob)})]);
+          imageCopied=true;
+        }
+      }catch(e){console.warn('[buffer] image clipboard:',e);}
+    }
+  }
+  if(!imageCopied){try{await navigator.clipboard.writeText(text);}catch(_){}}
+  window.open(addUrl,'_blank','noopener');
+  if(imageCopied){
+    const btn=document.getElementById('buffer-btn');
+    if(btn){const o=btn.innerHTML;btn.innerHTML='<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Paste image in Buffer (⌘V)';
+      setTimeout(()=>{btn.innerHTML=o;},5000);}
+  }
 }
 function copyCardCaption(btn){
   const parent=btn.closest('.ig-cap,[style*="relative"]');
   const editable=parent&&parent.querySelector('[contenteditable]');
-  const card=btn.closest('.ig-card,.tw-card,.fb-card');
+  const card=btn.closest('.ig-card,.tw-card,.th-card,.fb-card');
   const caption=editable?editable.innerText.trim():'';
   let hashtags='';
   if(card&&card.classList.contains('ig-card')){
@@ -1376,14 +1506,16 @@ async function downloadPlatImage(pk){
     }catch(_){window.open(vid.src,'_blank');if(btn){btn.disabled=false;}}
     return;
   }
-  const allImgs=[...zone.querySelectorAll('img')].filter(i=>i.src&&i.src.includes('pexels'));
+  const allImgs=[...zone.querySelectorAll('img')].filter(i=>i.src&&(i.src.includes('pexels')||i.src.includes('/api/image')));
   const img=allImgs.sort((a,b)=>parseInt(b.style.zIndex||0)-parseInt(a.style.zIndex||0))[0];
   if(!img){window.open&&alert('Image not loaded yet.');return;}
   const btn=document.getElementById('save-img-btn');
   if(btn){const o=btn.innerHTML;btn.innerHTML=btn.innerHTML.replace('Save image','Saving…');btn.disabled=true;setTimeout(()=>{btn.innerHTML=o;btn.disabled=false;},5000);}
   try{
     const sq=pk==='ig';const OUT_W=1080,OUT_H=sq?1080:608;
-    const hiRes=img.src.replace(/w=\d+/,'w='+OUT_W).replace(/h=\d+/,'h='+OUT_H);
+    let hiRes=resolvePexelsUrlForBuffer(img.src)||img.src;
+    if(/w=\d+/.test(hiRes))hiRes=hiRes.replace(/w=\d+/,'w='+OUT_W);else hiRes=hiRes+(hiRes.includes('?')?'&':'?')+'w='+OUT_W;
+    if(/h=\d+/.test(hiRes))hiRes=hiRes.replace(/h=\d+/,'h='+OUT_H);else hiRes=hiRes+(hiRes.includes('?')?'&':'?')+'h='+OUT_H;
     const r=await fetch('/api/image?url='+encodeURIComponent(hiRes));
     if(!r.ok)throw new Error('fetch failed');
     const bmp=await createImageBitmap(await r.blob());
@@ -1400,7 +1532,7 @@ async function downloadPlatImage(pk){
     ctx.fillStyle='rgba(13,13,10,.82)';ctx.beginPath();ctx.roundRect(bx,by,bW,bH,bH/2);ctx.fill();
     ctx.fillStyle='#94C840';const dr=Math.round(4*SCALE);ctx.beginPath();ctx.arc(bx+dr*3,by+bH/2,dr,0,Math.PI*2);ctx.fill();
     ctx.fillStyle='#fff';ctx.font='600 '+Math.round(11*SCALE)+'px DM Sans,sans-serif';ctx.textBaseline='middle';ctx.textAlign='left';ctx.fillText('grubshelf.app',bx+dr*6,by+bH/2);
-    const names={ig:'Instagram',tw:'Twitter-X',fb:'Facebook'};
+    const names={ig:'Instagram',tw:'Twitter-X',fb:'Facebook',th:'Threads'};
     cv.toBlob(b=>{const a=document.createElement('a');a.download='grubshelf-'+(names[pk]||pk)+'-1080.png';a.href=URL.createObjectURL(b);a.click();URL.revokeObjectURL(a.href);
     if(btn){btn.innerHTML=btn.innerHTML.replace('Saving…','Saved!');setTimeout(()=>{btn.innerHTML=btn.innerHTML.replace('Saved!','Save image');btn.disabled=false;},1500);}
     },'image/png');
@@ -1425,7 +1557,7 @@ async function fetchBufferProfiles(token){
     const channels=data?.data?.channels||[];
     if(!channels.length){showKeyStatus('buffer-st','No channels — connect IG in Buffer','er');return;}
     bufferProfiles={};
-    channels.forEach(ch=>{const svc=(ch.service||'').toLowerCase();if(svc==='instagram')bufferProfiles.ig=ch.id;else if(svc==='twitter'||svc==='x')bufferProfiles.tw=ch.id;else if(svc==='facebook'||svc==='facebookpage')bufferProfiles.fb=ch.id;});
+    channels.forEach(ch=>{const svc=(ch.service||'').toLowerCase();if(svc==='instagram')bufferProfiles.ig=ch.id;else if(svc==='twitter'||svc==='x')bufferProfiles.tw=ch.id;else if(svc==='facebook'||svc==='facebookpage')bufferProfiles.fb=ch.id;else if(svc==='threads'||svc==='meta_threads')bufferProfiles.th=ch.id;});
     showKeyStatus('buffer-st','✓ Connected: '+channels.map(ch=>ch.name||ch.service).join(', '),'ok');
   }catch(e){showKeyStatus('buffer-st','Error — check token','er');}
 }
@@ -1440,7 +1572,7 @@ async function scheduleActive(){
   try{
     if(!bufferProfiles[pk])await fetchBufferProfiles(token);
     const profileId=bufferProfiles[pk];
-    const platNames={ig:'Instagram',tw:'Twitter/X',fb:'Facebook'};
+    const platNames={ig:'Instagram',tw:'Twitter/X',fb:'Facebook',th:'Threads'};
     if(!profileId)throw new Error('No Buffer '+(platNames[pk]||pk)+' channel found');
     const imageUrl=getBufferImageAssetUrl();
     const assetsPart=imageUrl?', assets: { images: [{ url: '+JSON.stringify(imageUrl)+' }] }':'';
