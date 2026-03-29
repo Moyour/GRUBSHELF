@@ -6,9 +6,15 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey =
+    process.env.GROQ_API_KEY ||
+    process.env.GROQ_KEY ||
+    process.env.GROQ_SECRET;
   if (!apiKey) {
-    return res.status(500).json({ error: 'GROQ_API_KEY not configured' });
+    return res.status(500).json({
+      error:
+        'GROQ_API_KEY not configured. In Vercel: Project → Settings → Environment Variables → add GROQ_API_KEY (your Groq API key), then redeploy.',
+    });
   }
 
   try {
