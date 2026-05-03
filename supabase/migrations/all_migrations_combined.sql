@@ -1,5 +1,5 @@
 -- =============================================================
--- FoodPan: ALL MIGRATIONS COMBINED (001 + 002 + 003)
+-- GrubShelf: ALL MIGRATIONS COMBINED (001 + 002 + 003)
 -- Paste this entire script into Supabase SQL Editor and run once
 -- =============================================================
 
@@ -548,6 +548,113 @@ CREATE INDEX IF NOT EXISTS idx_pantry_items_usage_tracking
     ON pantry_items (household_id, reminder_status, last_quantity_update_date);
 
 -- =============================================================
--- DONE! All tables, RLS policies, indexes, triggers, and
--- 200+ grocery catalog items have been created.
+-- MIGRATION 022: Household barcode labels (saved pantry names per scan)
+-- =============================================================
+CREATE TABLE IF NOT EXISTS household_barcode_labels (
+    household_id UUID NOT NULL REFERENCES households(household_id) ON DELETE CASCADE,
+    barcode TEXT NOT NULL CHECK (
+        char_length(barcode) BETWEEN 8 AND 14
+        AND barcode ~ '^[0-9]+$'
+    ),
+    display_name TEXT NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 120),
+    category TEXT NOT NULL CHECK (char_length(category) BETWEEN 1 AND 40),
+    catalog_item_id UUID REFERENCES grocery_catalog(catalog_item_id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (household_id, barcode)
+);
+
+CREATE INDEX IF NOT EXISTS idx_household_barcode_labels_household
+    ON household_barcode_labels (household_id);
+
+DROP TRIGGER IF EXISTS set_updated_at_household_barcode_labels ON household_barcode_labels;
+CREATE TRIGGER set_updated_at_household_barcode_labels
+    BEFORE UPDATE ON household_barcode_labels FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+ALTER TABLE household_barcode_labels ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Members can read household barcode labels" ON household_barcode_labels;
+CREATE POLICY "Members can read household barcode labels"
+    ON household_barcode_labels FOR SELECT USING (household_id = get_my_household_id());
+
+DROP POLICY IF EXISTS "Members can insert household barcode labels" ON household_barcode_labels;
+CREATE POLICY "Members can insert household barcode labels"
+    ON household_barcode_labels FOR INSERT WITH CHECK (household_id = get_my_household_id());
+
+DROP POLICY IF EXISTS "Members can update household barcode labels" ON household_barcode_labels;
+CREATE POLICY "Members can update household barcode labels"
+    ON household_barcode_labels FOR UPDATE USING (household_id = get_my_household_id());
+
+DROP POLICY IF EXISTS "Members can delete household barcode labels" ON household_barcode_labels;
+CREATE POLICY "Members can delete household barcode labels"
+    ON household_barcode_labels FOR DELETE USING (household_id = get_my_household_id());
+
+-- =============================================================
+-- MIGRATION 023: Pantry storage location
+-- =============================================================
+
+ALTER TABLE pantry_items
+ADD COLUMN IF NOT EXISTS storage_location TEXT NOT NULL DEFAULT 'shelf'
+CHECK (storage_location IN ('fridge', 'shelf'));
+
+COMMENT ON COLUMN pantry_items.storage_location IS 'Where the item is stored: fridge or shelf';
+
+-- =============================================================
+-- MIGRATION 025: Pantry item photos
+-- =============================================================
+
+ALTER TABLE pantry_items
+ADD COLUMN IF NOT EXISTS photo_path TEXT;
+
+COMMENT ON COLUMN pantry_items.photo_path IS 'Supabase Storage object path for pantry item photo (bucket pantry-item-photos).';
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+    'pantry-item-photos',
+    'pantry-item-photos',
+    true,
+    5242880,
+    ARRAY['image/jpeg', 'image/png', 'image/heic']
+)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Members can read pantry item photos" ON storage.objects;
+CREATE POLICY "Members can read pantry item photos"
+    ON storage.objects FOR SELECT TO authenticated
+    USING (
+        bucket_id = 'pantry-item-photos'
+        AND (storage.foldername(name))[1] = get_my_household_id()::text
+    );
+
+DROP POLICY IF EXISTS "Members can upload pantry item photos" ON storage.objects;
+CREATE POLICY "Members can upload pantry item photos"
+    ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (
+        bucket_id = 'pantry-item-photos'
+        AND (storage.foldername(name))[1] = get_my_household_id()::text
+    );
+
+DROP POLICY IF EXISTS "Members can update pantry item photos" ON storage.objects;
+CREATE POLICY "Members can update pantry item photos"
+    ON storage.objects FOR UPDATE TO authenticated
+    USING (
+        bucket_id = 'pantry-item-photos'
+        AND (storage.foldername(name))[1] = get_my_household_id()::text
+    )
+    WITH CHECK (
+        bucket_id = 'pantry-item-photos'
+        AND (storage.foldername(name))[1] = get_my_household_id()::text
+    );
+
+DROP POLICY IF EXISTS "Members can delete pantry item photos" ON storage.objects;
+CREATE POLICY "Members can delete pantry item photos"
+    ON storage.objects FOR DELETE TO authenticated
+    USING (
+        bucket_id = 'pantry-item-photos'
+        AND (storage.foldername(name))[1] = get_my_household_id()::text
+    );
+
+-- =============================================================
+-- DONE! Includes migrations through 025.
+-- For existing projects, run individual 022_ / 023_ / 025_ scripts in the
+-- SQL Editor if you do not re-run this full script.
 -- =============================================================

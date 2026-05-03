@@ -1,8 +1,8 @@
-# FoodPan
+# GrubShelf
 
 **Reduce waste. Save money. Simplify meals.**
 
-FoodPan is an iOS app that helps households manage their pantry inventory, plan shopping trips, track spending, and reduce food waste through smart alerts and insights.
+GrubShelf is an iOS app that helps households manage their pantry inventory, plan shopping trips, track spending, and reduce food waste through smart alerts and insights.
 
 ---
 
@@ -127,9 +127,9 @@ FoodPan is an iOS app that helps households manage their pantry inventory, plan 
 ## Project Structure
 
 ```
-FoodPan/
-├── FoodPan/
-│   ├── FoodPanApp.swift          # App entry, auth flow, onboarding
+GrubShelf/
+├── GrubShelf/
+│   ├── GrubShelfApp.swift          # App entry, auth flow, onboarding
 │   ├── ContentView.swift         # Tab navigation, view model wiring
 │   ├── Models/                   # PantryItem, ShoppingItem, Transaction, etc.
 │   ├── ViewModels/               # Dashboard, Pantry, Shopping, Insights, etc.
@@ -147,7 +147,7 @@ FoodPan/
 │   ├── Repositories/             # Supabase*Repository implementations
 │   ├── Extensions/               # CurrencyFormatter, etc.
 │   └── DesignSystem/             # Colors, Typography, Spacing, Shadow
-├── FoodPanTests/                 # Unit tests
+├── GrubShelfTests/               # Unit tests
 ├── supabase/                     # Migrations, config
 └── docs/                         # GOOGLE_SIGNIN_SETUP, APPLE_SIGNIN_SETUP
 ```
@@ -198,7 +198,7 @@ FoodPan/
 1. **Clone the repository**
    ```bash
    git clone <repo-url>
-   cd FoodPan
+   cd GrubShelf
    ```
 
 2. **Configure Supabase**
@@ -206,13 +206,21 @@ FoodPan/
    - Add `Config.plist` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`
    - Run migrations: `supabase db push` (or apply `supabase/migrations/*.sql`)
 
-3. **Configure Auth (optional)**
+3. **Household invite emails (optional)**
+   - Create a [Resend](https://resend.com) API key
+   - Deploy the Edge Function: `supabase functions deploy send-household-invite`
+   - Set secrets on the hosted project:
+     - `RESEND_API_KEY` — required for real delivery
+     - `HOUSEHOLD_INVITE_EMAIL_FROM` — e.g. `GrubShelf <notifications@yourdomain.com>` (use a domain you verify in Resend; the default `onboarding@resend.dev` only works for Resend’s own testing limits)
+   - Without these secrets, invites still save in the database; the app logs a non-fatal error if the function returns 503
+
+4. **Configure Auth (optional)**
    - See `docs/GOOGLE_SIGNIN_SETUP.md` for Google Sign-In
    - See `docs/APPLE_SIGNIN_SETUP.md` for Sign in with Apple
    - Add `GOOGLE_CLIENT_ID` to `Config.plist` for Google
 
-4. **Build and run**
-   - Open `FoodPan.xcodeproj` in Xcode
+5. **Build and run**
+   - Open `GrubShelf.xcodeproj` in Xcode
    - Select a simulator or device
    - Build and run (⌘R)
 
@@ -241,7 +249,7 @@ FoodPan/
 
 ## Testing
 
-Unit tests are in `FoodPanTests/`:
+Unit tests are in `GrubShelfTests/`:
 
 - `PantryItemTests` — State transitions, validation
 - `PantryViewModelTests`

@@ -1,4 +1,4 @@
--- FoodPan Migration 002: Shopping Lists & Grocery Catalog
+-- GrubShelf Migration 002: Shopping Lists & Grocery Catalog
 -- Adds multiple shopping lists, grocery catalog for search, and shopping item enhancements
 
 -- 1. Grocery catalog table (read-only reference)

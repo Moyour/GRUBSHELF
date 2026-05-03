@@ -1,4 +1,4 @@
--- FoodPan Migration 005: Expand Grocery Catalog
+-- GrubShelf Migration 005: Expand Grocery Catalog
 -- Adds ~300 more items across all categories + new categories (Baby, Pet, Health, Bakery, Deli, Canned/Jarred, Household)
 
 INSERT INTO grocery_catalog (name, default_category, default_unit, search_keywords) VALUES

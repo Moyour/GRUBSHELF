@@ -1,4 +1,4 @@
--- FoodPan Finance Feature Migration
+-- GrubShelf Finance Feature Migration
 -- Run this in Supabase SQL Editor (Dashboard > SQL Editor)
 
 -- ============================================================

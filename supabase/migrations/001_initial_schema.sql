@@ -1,4 +1,4 @@
--- FoodPan Initial Schema Migration
+-- GrubShelf Initial Schema Migration
 -- Run this in Supabase SQL Editor (Dashboard > SQL Editor)
 
 -- 1. Households table

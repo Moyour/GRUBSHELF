@@ -1,4 +1,4 @@
--- FoodPan Migration 016: African Store Items (UK)
+-- GrubShelf Migration 016: African Store Items (UK)
 -- Adds items commonly sold in African stores, using existing categories where they fit
 -- and creating new categories (African Staples, African Spices) for African-specific items
 

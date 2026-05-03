@@ -1,4 +1,4 @@
--- FoodPan Migration 003: Seed Grocery Catalog
+-- GrubShelf Migration 003: Seed Grocery Catalog
 -- 200+ common grocery items across all predefined categories
 
 INSERT INTO grocery_catalog (name, default_category, default_unit, search_keywords) VALUES

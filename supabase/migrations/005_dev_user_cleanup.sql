@@ -10,7 +10,7 @@ AS $$
 DECLARE
     dev_uid UUID;
 BEGIN
-    SELECT id INTO dev_uid FROM auth.users WHERE email = 'dev@foodpan.test';
+    SELECT id INTO dev_uid FROM auth.users WHERE email = 'dev@grubshelf.test';
     IF dev_uid IS NULL THEN
         RETURN;
     END IF;

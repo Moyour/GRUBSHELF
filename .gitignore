@@ -62,4 +62,46 @@ fastlane/screenshots/**/*.png
 fastlane/test_output
 
 # Sensitive configuration (contains Supabase keys)
-FoodPan/Config.plist
+GrubShelf/Config.plist
+
+# Environment files (API keys)
+.env
+.env.*
+.env.local
+
+# Dev-only credentials plist
+DevConfig.plist
+
+# Node / npm
+node_modules/
+package-lock.json
+
+# IDE / Editor
+.cursor/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Generated screenshots & App Store assets
+AppStoreScreenshots/
+GrubShelf-AppIcons/
+
+# Dev screenshot scripts & HTML previews
+appstore-screens.html
+appstore-screens-human.html
+onboarding-concepts.html
+capture-screenshots.js
+capture-screenshots-human.js
+
+# Old FoodPan directory (rebranded to GrubShelf)
+FoodPan/
+FoodPan.xcodeproj/
+FoodPanTests/
+ONBOARDING/
+
+# Task Master local state
+.taskmaster/tasks/
+
+# Supabase local
+supabase/.temp/

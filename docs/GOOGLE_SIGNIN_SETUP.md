@@ -13,13 +13,13 @@ For Sign in with Google to work, you need to configure both Google Cloud Console
 
    **a) Web application** (required for Supabase audience validation):
    - Application type: **Web application**
-   - Name: e.g. "FoodPan Web"
+   - Name: e.g. "GrubShelf Web"
    - Authorized redirect URIs: `https://your-project.supabase.co/auth/v1/callback` (for hosted) or `http://127.0.0.1:54321/auth/v1/callback` (for local)
    - Copy the **Client ID** (e.g. `123456789-xxx.apps.googleusercontent.com`)
 
    **b) iOS** (for the native app):
    - Application type: **iOS**
-   - Bundle ID: `com.foodpan.FoodPan`
+   - Bundle ID: `com.grubshelf.GrubShelf`
    - Copy the **Client ID** (e.g. `123456789-yyy.apps.googleusercontent.com`)
 
 ## 2. Supabase Dashboard (Hosted)
@@ -44,16 +44,16 @@ If using `supabase start` for local development:
 
 2. Restart Supabase: `supabase stop` then `supabase start`.
 
-## 4. FoodPan App
+## 4. GrubShelf App
 
-1. Open `FoodPan/Config.plist`
+1. Open `GrubShelf/Config.plist`
 2. Replace `YOUR_GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com` with your **iOS Client ID** from step 1b above.
 
 ## 5. URL Scheme (Optional for some flows)
 
 If you encounter redirect issues, add a URL scheme to your app:
 
-1. In Xcode, select the FoodPan target → **Info** tab
+1. In Xcode, select the GrubShelf target → **Info** tab
 2. Under **URL Types**, add a new entry:
    - **Identifier**: `com.googleusercontent.apps.YOUR_IOS_CLIENT_ID`
    - **URL Schemes**: The reversed client ID (e.g. `com.googleusercontent.apps.123456789-yyy`)
@@ -66,5 +66,5 @@ If you encounter redirect issues, add a URL scheme to your app:
 
 - **"Unacceptable audience in id_token"**: You must add the **Web Client ID** to Supabase (in addition to the iOS Client ID). The Web Client ID must be first in the comma-separated list.
 - **"Provider not enabled"**: Enable Google in Supabase Dashboard → Authentication → Providers.
-- **"Invalid client"**: Ensure the iOS Client ID in Config.plist matches the Bundle ID (`com.foodpan.FoodPan`) in Google Cloud Console.
+- **"Invalid client"**: Ensure the iOS Client ID in Config.plist matches the Bundle ID (`com.grubshelf.GrubShelf`) in Google Cloud Console.
 - **User cancelled**: Error code -5 from GIDSignIn means the user cancelled; we handle this silently.

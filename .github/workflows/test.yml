@@ -14,39 +14,45 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Select Xcode version
+    - name: Select Xcode
       run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
     - name: Show Xcode version
       run: xcodebuild -version
 
-    - name: Cache Swift Package Manager dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          FoodPanPackage/.build
-          FoodPanPackage/.swiftpm
-        key: ${{ runner.os }}-spm-${{ hashFiles('FoodPanPackage/Package.swift') }}
-        restore-keys: |
-          ${{ runner.os }}-spm-
-
-    - name: Run Package Tests
+    - name: Pick iOS Simulator
+      id: sim
       run: |
-        cd FoodPanPackage
-        swift test --parallel
+        set -euo pipefail
+        UDID="$(python3 <<'PY'
+        import json
+        import subprocess
+        import sys
 
-    - name: Generate Test Coverage Report
+        j = json.loads(
+            subprocess.check_output(
+                ["xcrun", "simctl", "list", "devices", "available", "-j"],
+                text=True,
+            )
+        )
+        for runtime in sorted(j["devices"].keys(), reverse=True):
+            if "iOS" not in runtime:
+                continue
+            for d in j["devices"][runtime]:
+                if d.get("isAvailable") and "iPhone" in d.get("name", ""):
+                    print(d["udid"])
+                    sys.exit(0)
+        sys.stderr.write("No available iPhone simulator found\n")
+        sys.exit(1)
+        PY
+        )"
+        echo "udid=${UDID}" >> "${GITHUB_OUTPUT}"
+        echo "Using simulator ${UDID}"
+
+    - name: Run GrubShelf tests
       run: |
-        cd FoodPanPackage
-        swift test --enable-code-coverage
-        xcrun llvm-cov export -format="lcov" \
-          .build/debug/FoodPanFeatureTests.xctest/Contents/MacOS/FoodPanFeatureTests \
-          -instr-profile .build/debug/codecov/default.profdata > coverage.lcov
-      continue-on-error: true
-
-    - name: Upload Coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./FoodPanPackage/coverage.lcov
-        fail_ci_if_error: false
-      continue-on-error: true
+        set -euo pipefail
+        xcodebuild test \
+          -project GrubShelf.xcodeproj \
+          -scheme GrubShelf \
+          -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}"
