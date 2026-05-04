@@ -37,7 +37,7 @@ struct OpenFoodFactsService {
         config.timeoutIntervalForRequest = 10
         config.timeoutIntervalForResource = 15
         config.tlsMinimumSupportedProtocolVersion = .TLSv12
-        return URLSession(configuration: config, delegate: nil, delegateQueue: nil)
+        return URLSession(configuration: config, delegate: PinnedURLSessionDelegate.shared, delegateQueue: nil)
     }()
 
     static func lookup(barcode: String) async throws -> OpenFoodFactsProduct {

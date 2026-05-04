@@ -45,6 +45,10 @@ targets:
         NSCameraUsageDescription: GrubShelf uses the camera to identify products you add to your pantry.
         NSPhotoLibraryUsageDescription: GrubShelf uses your photo library so you can select product images for pantry item recognition.
         NSPhotoLibraryAddUsageDescription: GrubShelf may save processed pantry photos to your library when you choose to keep them.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.grubshelf.auth
+            CFBundleURLSchemes:
+              - grubshelf
         UIAppFonts:
           - Inter-Variable.ttf
           - Outfit-Variable.ttf
@@ -94,7 +98,11 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - GrubShelfTests
+      - path: GrubShelfTests
+        excludes:
+          - Fixtures/**
+    resources:
+      - GrubShelfTests/Fixtures
     dependencies:
       - target: GrubShelf
     settings:
