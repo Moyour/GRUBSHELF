@@ -2,7 +2,12 @@ import SwiftUI
 
 struct ExpiryCalendarView: View {
     let items: [PantryItem]
+    var householdId: UUID?
+    var userId: UUID?
+    var userRole: UserRole = .member
+
     @State private var selectedDate: Date = .now
+    @State private var itemToEdit: PantryItem?
     /// Any date within the visible week; week boundaries come from `dateInterval(of: .weekOfYear, ...)`.
     @State private var weekContainingDate: Date = .now
 
@@ -87,6 +92,7 @@ struct ExpiryCalendarView: View {
                                 .frame(width: AppSpacing.chevronTouchWidth, height: AppSpacing.chevronTouchHeight)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Previous week")
 
                         HStack(spacing: 0) {
                             ForEach(daysInWeek, id: \.self) { date in
@@ -112,6 +118,7 @@ struct ExpiryCalendarView: View {
                                 .frame(width: AppSpacing.chevronTouchWidth, height: AppSpacing.chevronTouchHeight)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Next week")
                     }
                 }
                 .padding(.horizontal, AppSpacing.screenPadding)
@@ -125,8 +132,11 @@ struct ExpiryCalendarView: View {
                             .padding(.horizontal, AppSpacing.screenPadding)
 
                         ForEach(selectedDayItems) { item in
-                            PantryItemRow(item: item)
-                                .padding(.horizontal, AppSpacing.screenPadding)
+                            PantryItemRow(
+                                item: item,
+                                onTapEdit: canEditItems ? { itemToEdit = item } : nil
+                            )
+                            .padding(.horizontal, AppSpacing.screenPadding)
                         }
                     }
                 } else {
@@ -141,6 +151,23 @@ struct ExpiryCalendarView: View {
         .background(.gsBackground)
         .navigationTitle("Expiry Calendar")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $itemToEdit) { item in
+            if let householdId, let userId {
+                AddEditPantryItemView(
+                    viewModel: AddEditPantryItemViewModel(
+                        repository: SupabasePantryRepository(),
+                        householdId: householdId,
+                        userId: userId,
+                        userRole: userRole,
+                        existingItem: item
+                    )
+                )
+            }
+        }
+    }
+
+    private var canEditItems: Bool {
+        householdId != nil && userId != nil
     }
 
     // MARK: - Day Cell

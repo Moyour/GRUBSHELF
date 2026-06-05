@@ -3,6 +3,7 @@ import SwiftUI
 struct PantryView: View {
     @State private var viewModel: PantryViewModel
     @State private var showEmptyState = false
+    @State private var showPendingApprovals = false
     @State private var viewMode: PantryViewMode = .grid
 
     private enum PantryViewMode: String {
@@ -18,7 +19,11 @@ struct PantryView: View {
             Group {
                 if !viewModel.hasLoaded {
                     PantrySkeletonView()
-                } else if viewModel.items.isEmpty {
+                } else if let errorMessage = viewModel.errorMessage {
+                    pantryErrorStateView(errorMessage: errorMessage)
+                } else if viewModel.approvedItems.isEmpty
+                    && viewModel.pendingApprovalItems.isEmpty
+                    && viewModel.myRejectedItems.isEmpty {
                     emptyStateView
                 } else {
                     if viewMode == .grid {
@@ -39,6 +44,7 @@ struct PantryView: View {
                         } label: {
                             Image(systemName: viewMode == .grid ? "list.bullet" : "square.grid.2x2")
                         }
+                        .accessibilityLabel(viewMode == .grid ? "Switch to list view" : "Switch to grid view")
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         PrimaryPlusToolbarButton(
@@ -97,50 +103,121 @@ struct PantryView: View {
                     repository: viewModel.repository,
                     householdId: viewModel.householdId,
                     userId: viewModel.userId,
+                    userRole: viewModel.userRole,
                     existingItem: item
                 ))
             }
             .tint(.gsBrandPrimary)
+            .alert("Reject item?", isPresented: $viewModel.showRejectReasonPrompt) {
+                TextField("Reason (optional)", text: $viewModel.rejectReasonText)
+                Button("Reject", role: .destructive) {
+                    Task { await viewModel.confirmRejectItem() }
+                }
+                Button("Cancel", role: .cancel) {
+                    viewModel.cancelRejectItem()
+                }
+            } message: {
+                if let name = viewModel.itemToReject?.name {
+                    Text("\"\(name)\" won’t be added until approved.")
+                }
+            }
+            .sheet(isPresented: $showPendingApprovals) {
+                NavigationStack {
+                    PendingApprovalsView(householdId: viewModel.householdId)
+                }
+                .presentationDetents([.large])
+            }
         }
     }
 
     private var emptyStateView: some View {
-        ScrollView {
-            VStack(alignment: .center, spacing: AppSpacing.sectionSpacing) {
-                Spacer(minLength: AppSpacing.scrollVerticalBreathingRoom)
+        VStack(alignment: .center, spacing: 20) {
+            Spacer()
 
-                TabEmptyStateHero(
-                    systemName: "refrigerator.fill",
-                    symbolFontSize: EmptyStateMetrics.tabHeroSymbolSizeCompact,
-                    symbolWeight: .bold,
-                    imageAsset: "onboarding-pantry"
-                )
-                .opacity(showEmptyState ? 1 : 0)
-                .scaleEffect(showEmptyState ? 1 : 0.92)
+            // Large hero icon with background circle
+            ZStack {
+                Circle()
+                    .fill(.gsBrandPrimary.opacity(0.08))
+                    .frame(width: 120, height: 120)
 
-                EmptyStateCopyCard(
-                    title: String(localized: "Your shelf is empty"),
-                    subtitle: String(localized: "Add items to track expiry, low stock, and what's on hand—same quick flow as Home.")
-                )
-                .opacity(showEmptyState ? 1 : 0)
-                .offset(y: showEmptyState ? 0 : 12)
-
-                EmptyStateTealCTAButton(
-                    title: String(localized: "Add your first item"),
-                    systemImage: "plus.circle.fill"
-                ) {
-                    viewModel.showAddSheet = true
-                }
-                .padding(.horizontal, AppSpacing.screenPadding)
-                .opacity(showEmptyState ? 1 : 0)
-                .offset(y: showEmptyState ? 0 : 12)
-
-                Spacer(minLength: AppSpacing.scrollVerticalBreathingRoom)
+                Image(systemName: "refrigerator.fill")
+                    .font(.system(size: 56, weight: .medium))
+                    .foregroundStyle(.gsBrandPrimary)
+                    .symbolRenderingMode(.hierarchical)
             }
-            .frame(maxWidth: .infinity)
-            .multilineTextAlignment(.center)
-            .animation(.spring(response: 0.45, dampingFraction: 0.86).delay(0.12), value: showEmptyState)
-            .onAppear { showEmptyState = true }
+
+            // Title with better typography
+            VStack(spacing: 8) {
+                Text("Your Pantry is Empty")
+                    .font(BrandFont.semiBold(26))
+                    .foregroundStyle(.gsTextPrimary)
+
+                Text("Start tracking what you have on hand")
+                    .font(BrandFont.regular(16))
+                    .foregroundStyle(.gsTextSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, AppSpacing.screenPadding)
+            }
+
+            // Feature hints - more compact
+            VStack(spacing: 12) {
+                EmptyStateFeatureRow(
+                    icon: "calendar.badge.clock",
+                    text: "Track expiry dates"
+                )
+                EmptyStateFeatureRow(
+                    icon: "chart.bar.fill",
+                    text: "Monitor stock levels"
+                )
+                EmptyStateFeatureRow(
+                    icon: "arrow.triangle.2.circlepath",
+                    text: "Sync with shopping lists"
+                )
+            }
+            .padding(.horizontal, AppSpacing.screenPadding * 2)
+
+            // CTA button - compact
+            Button {
+                viewModel.showAddSheet = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Add Your First Item")
+                        .font(BrandFont.semiBold(17))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: 280)
+                .padding(.vertical, 14)
+                .background(.gsBrandPrimary)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .shadow(color: .gsBrandPrimary.opacity(0.3), radius: 8, y: 4)
+            }
+            .padding(.top, 8)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .multilineTextAlignment(.center)
+    }
+
+    // Helper view for feature rows
+    private struct EmptyStateFeatureRow: View {
+        let icon: String
+        let text: String
+
+        var body: some View {
+            HStack(spacing: AppSpacing.rowSpacing) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.gsBrandPrimary)
+                    .frame(width: 24)
+
+                Text(text)
+                    .font(BrandFont.medium(15))
+                    .foregroundStyle(.gsTextSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -149,6 +226,12 @@ struct PantryView: View {
     private var pantryGridContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if hasPendingApprovalBanner {
+                    pantryPendingBanner
+                        .padding(.horizontal, AppSpacing.screenPadding)
+                        .padding(.bottom, AppSpacing.rowSpacing)
+                }
+
                 PantryFilterChips(viewModel: viewModel)
                     .padding(.top, AppSpacing.compactGap)
                     .padding(.bottom, AppSpacing.rowSpacing)
@@ -174,8 +257,14 @@ struct PantryView: View {
                             PantryGridCard(
                                 item: item,
                                 confidence: viewModel.confidence(for: item),
-                                onTap: { viewModel.itemToEdit = item },
-                                onMarkFinished: { viewModel.markFinished(item) },
+                                canModify: viewModel.canModifyItem(item),
+                                onTap: {
+                                    if viewModel.canModifyItem(item) {
+                                        viewModel.itemToEdit = item
+                                    }
+                                },
+                                onMarkFinished: { Task { await viewModel.markFinished(item) } },
+                                onMoreRemovalOptions: { viewModel.showRemovalOptions(for: item) },
                                 onHalve: { Task { await viewModel.halveItem(item) } },
                                 onDecrement: { Task { await viewModel.decrementItem(item) } }
                             )
@@ -196,7 +285,14 @@ struct PantryView: View {
 
     /// Single scroll surface: summary + location filter + rows (same layout fix as Shop lists).
     private var pantryListContent: some View {
-        List {
+        VStack(spacing: 0) {
+            if hasPendingApprovalBanner {
+                pantryPendingBanner
+                    .padding(.horizontal, AppSpacing.screenPadding)
+                    .padding(.bottom, AppSpacing.rowSpacing)
+            }
+
+            List {
             Section {
                 PantrySummaryStrip(viewModel: viewModel)
                     .padding(.top, AppSpacing.compactGap)
@@ -275,47 +371,143 @@ struct PantryView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .listSectionSpacing(AppSpacing.rowSpacing)
+        }
+    }
+
+    private var hasPendingApprovalBanner: Bool {
+        (viewModel.isAdmin && !viewModel.pendingApprovalItems.isEmpty)
+            || (!viewModel.isAdmin && !viewModel.myPendingItems.isEmpty)
+            || (!viewModel.isAdmin && !viewModel.myRejectedItems.isEmpty)
+    }
+
+    @ViewBuilder
+    private var pantryPendingBanner: some View {
+        if viewModel.isAdmin && !viewModel.pendingApprovalItems.isEmpty {
+            PendingApprovalPantrySection(
+                role: .admin,
+                items: viewModel.pendingApprovalItems,
+                onReviewAll: viewModel.pendingApprovalItems.count > 1 ? { showPendingApprovals = true } : nil,
+                onApprove: { item in Task { await viewModel.approveItem(item) } },
+                onReject: { item in viewModel.beginRejectItem(item) }
+            )
+        } else if !viewModel.isAdmin && !viewModel.myPendingItems.isEmpty {
+            PendingApprovalPantrySection(role: .memberWaiting, items: viewModel.myPendingItems)
+        } else if !viewModel.isAdmin && !viewModel.myRejectedItems.isEmpty {
+            PendingApprovalPantrySection(role: .memberRejected, items: viewModel.myRejectedItems)
+        }
     }
 
     private func pantryRow(_ item: PantryItem) -> some View {
         PantryItemRow(
             item: item,
             confidence: viewModel.confidence(for: item),
-            onTapEdit: { viewModel.itemToEdit = item },
-            onIncrement: { Task { await viewModel.incrementItem(item) } },
-            onDecrement: { Task { await viewModel.decrementItem(item) } }
+            onTapEdit: viewModel.canModifyItem(item) ? { viewModel.itemToEdit = item } : nil,
+            onIncrement: viewModel.canModifyItem(item) ? { Task { await viewModel.incrementItem(item) } } : nil,
+            onDecrement: viewModel.canModifyItem(item) ? { Task { await viewModel.decrementItem(item) } } : nil
         )
             .listRowInsets(AppSpacing.listRowCardInsets)
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                Button {
-                    viewModel.markFinished(item)
-                } label: {
-                    Label("Finished", systemImage: "checkmark.circle")
+                if viewModel.canModifyItem(item) && item.isApproved {
+                    Button {
+                        Task { await viewModel.markFinished(item) }
+                    } label: {
+                        Label("Used", systemImage: "checkmark.circle")
+                    }
+                    .tint(.gsSuccess)
+                    Button {
+                        Task { await viewModel.halveItem(item) }
+                    } label: {
+                        Label("Half", systemImage: "divide")
+                    }
+                    .tint(.gsBrandPrimary)
+                    Button {
+                        Task { await viewModel.decrementItem(item) }
+                    } label: {
+                        Label("-1", systemImage: "minus.circle")
+                    }
+                    .tint(.gsBrandPrimary)
                 }
-                .tint(.gsBrandPrimary)
-                Button {
-                    Task { await viewModel.halveItem(item) }
-                } label: {
-                    Label("Half", systemImage: "divide")
-                }
-                .tint(.gsBrandPrimary)
-                Button {
-                    Task { await viewModel.decrementItem(item) }
-                } label: {
-                    Label("-1", systemImage: "minus.circle")
-                }
-                .tint(.gsBrandPrimary)
             }
             .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                Button {
-                    viewModel.itemToEdit = item
-                } label: {
-                    Label("Edit", systemImage: "pencil")
+                if viewModel.canModifyItem(item) && item.isApproved {
+                    Button {
+                        viewModel.beginWasteRemoval(for: item)
+                    } label: {
+                        Label("Waste", systemImage: "trash")
+                    }
+                    .tint(.gsWarning)
+                    Button {
+                        viewModel.itemToEdit = item
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .tint(.gsBrandPrimary)
                 }
-                .tint(.gsBrandPrimary)
             }
+            .contextMenu {
+                if viewModel.canModifyItem(item) && item.isApproved {
+                    Button {
+                        Task { await viewModel.markFinished(item) }
+                    } label: {
+                        Label("Used", systemImage: "checkmark.circle")
+                    }
+                    Button {
+                        viewModel.showRemovalOptions(for: item)
+                    } label: {
+                        Label("More options…", systemImage: "ellipsis.circle")
+                    }
+                }
+            }
+    }
+
+    // MARK: - Error State
+
+    private func pantryErrorStateView(errorMessage: String) -> some View {
+        VStack(spacing: AppSpacing.sectionSpacing) {
+            Spacer()
+
+            VStack(spacing: AppSpacing.rowSpacing) {
+                ZStack {
+                    Circle()
+                        .fill(.gsWarning.opacity(0.12))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 36, weight: .medium))
+                        .foregroundStyle(.gsWarning)
+                }
+
+                VStack(spacing: AppSpacing.compactGap) {
+                    Text("Couldn't Load Pantry")
+                        .font(BrandFont.semiBold(20))
+                        .foregroundStyle(.gsTextPrimary)
+
+                    Text(errorMessage)
+                        .font(BrandFont.regular(15))
+                        .foregroundStyle(.gsTextSecondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                Button {
+                    Task { await viewModel.loadItems(forceRefresh: true) }
+                } label: {
+                    Text("Try Again")
+                        .font(BrandFont.semiBold(17))
+                        .foregroundStyle(.gsTextOnBrand)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: AppSpacing.minTouchTarget)
+                }
+                .buttonStyle(.plain)
+                .background(.gsBrandPrimary)
+                .clipShape(RoundedRectangle(cornerRadius: AppSpacing.buttonRadius, style: .continuous))
+                .padding(.horizontal, AppSpacing.screenPadding * 2)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(AppSpacing.screenPadding)
     }
 
 }
@@ -325,8 +517,10 @@ struct PantryView: View {
 private struct PantryGridCard: View {
     let item: PantryItem
     let confidence: Double
+    var canModify: Bool = true
     let onTap: () -> Void
     let onMarkFinished: () -> Void
+    var onMoreRemovalOptions: (() -> Void)?
     let onHalve: () -> Void
     let onDecrement: () -> Void
 
@@ -345,7 +539,9 @@ private struct PantryGridCard: View {
                         Spacer()
                     }
 
-                    if let badge = expiryBadge {
+                    if item.approvalStatus != .approved {
+                        ApprovalStatusBadge(status: item.approvalStatus)
+                    } else if let badge = expiryBadge {
                         Text(badge.text)
                             .font(BrandFont.semiBold(11))
                             .foregroundStyle(badgeForeground(badge.style))
@@ -393,10 +589,17 @@ private struct PantryGridCard: View {
         .buttonStyle(DashboardScaleButtonStyle(scale: 0.97))
         .opacity(confidence < 0.7 ? max(0.55, confidence) : 1.0)
         .contextMenu {
-            Button { onTap() } label: { Label("Edit", systemImage: "pencil") }
-            Button { onMarkFinished() } label: { Label("Finished", systemImage: "checkmark.circle") }
-            Button { onHalve() } label: { Label("Half", systemImage: "divide") }
-            Button { onDecrement() } label: { Label("-1", systemImage: "minus.circle") }
+            if canModify {
+                Button { onTap() } label: { Label("Edit", systemImage: "pencil") }
+                Button { onMarkFinished() } label: { Label("Used", systemImage: "checkmark.circle") }
+                if let onMoreRemovalOptions {
+                    Button { onMoreRemovalOptions() } label: {
+                        Label("More options…", systemImage: "ellipsis.circle")
+                    }
+                }
+                Button { onHalve() } label: { Label("Half", systemImage: "divide") }
+                Button { onDecrement() } label: { Label("-1", systemImage: "minus.circle") }
+            }
         }
     }
 
@@ -490,9 +693,9 @@ private struct PantryFilterChips: View {
                         showDot: true
                     ) {
                         if viewModel.selectedAttention == .expiring {
-                            viewModel.selectedAttention = .none
+                            viewModel.setAttention(.none)
                         } else {
-                            viewModel.selectedAttention = .expiring
+                            viewModel.setAttention(.expiring)
                         }
                     }
                 }

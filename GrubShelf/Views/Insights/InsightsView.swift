@@ -3,6 +3,7 @@ import SwiftUI
 struct InsightsView: View {
     @State var insightsVM: InsightsViewModel
     @State var financeVM: FinanceViewModel
+    var canEditBudget: Bool = true
     @State private var showBudgetSettings = false
     @State private var showLogPurchaseSheet = false
 
@@ -32,8 +33,10 @@ struct InsightsView: View {
                         )
                         PrimaryToolbarIconButton(
                             systemImage: "gearshape.circle",
-                            accessibilityLabel: "Budget and currency settings",
-                            accessibilityHint: "Change budget, period, and currency",
+                            accessibilityLabel: canEditBudget ? "Budget and currency settings" : "View budget settings",
+                            accessibilityHint: canEditBudget
+                                ? "Change budget, period, and currency"
+                                : "View household budget settings (admin can edit)",
                             action: { showBudgetSettings = true }
                         )
                     }
@@ -42,7 +45,7 @@ struct InsightsView: View {
             .sheet(isPresented: $showBudgetSettings, onDismiss: {
                 Task { await financeVM.loadData(forceRefresh: true) }
             }) {
-                BudgetSettingsSheet(userId: financeVM.userId)
+                BudgetSettingsSheet(userId: financeVM.userId, canEditBudget: canEditBudget)
             }
             .sheet(isPresented: $showLogPurchaseSheet, onDismiss: {
                 Task { await financeVM.loadData(forceRefresh: true) }
@@ -77,11 +80,17 @@ struct InsightsView: View {
             if !financeVM.hasLoaded {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorMessage = financeVM.errorMessage {
+                financeErrorStateView(errorMessage: errorMessage)
             } else {
                 ScrollView {
                     VStack(spacing: AppSpacing.sectionSpacing) {
                         if !financeVM.hasBudget {
-                            budgetSetupCard
+                            if canEditBudget {
+                                budgetSetupCard
+                            } else {
+                                budgetMemberAwaitingAdminCard
+                            }
                         } else {
                             // 1. Compact budget hero
                             expenseCompactHero
@@ -310,6 +319,39 @@ struct InsightsView: View {
         .dashboardCardSurface()
     }
 
+    private var budgetMemberAwaitingAdminCard: some View {
+        VStack(spacing: AppSpacing.rowSpacing) {
+            Image(systemName: Locale.currencyCircleSymbolName(for: financeVM.currencyCode))
+                .font(BrandSymbolFont.symbol(34, weight: .bold))
+                .foregroundStyle(.gsBrandPrimary.opacity(0.4))
+
+            Text("No household budget yet")
+                .font(BrandFont.semiBold(18))
+                .foregroundStyle(.gsTextPrimary)
+
+            Text("Ask a household admin to set the budget. You can still log purchases and view insights below.")
+                .font(BrandFont.regular(17))
+                .foregroundStyle(.gsTextSecondary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                showLogPurchaseSheet = true
+            } label: {
+                Text("Log a purchase")
+                    .font(BrandFont.semiBold(17))
+                    .foregroundStyle(.gsTextInverse)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: AppSpacing.minTouchTarget)
+                    .background(.gsBrandPrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: AppSpacing.buttonRadius))
+            }
+            .padding(.top, AppSpacing.smallSpacing)
+        }
+        .padding(AppSpacing.cardPadding)
+        .frame(maxWidth: .infinity)
+        .dashboardCardSurface()
+    }
+
     private var heroColor: Color {
         switch financeVM.budgetColor {
         case .green: return .gsBrandPrimary
@@ -516,6 +558,54 @@ struct InsightsView: View {
         case .achievements:
             AchievementsCard(viewModel: insightsVM)
         }
+    }
+
+    // MARK: - Error State
+
+    private func financeErrorStateView(errorMessage: String) -> some View {
+        VStack(spacing: AppSpacing.sectionSpacing) {
+            Spacer()
+
+            VStack(spacing: AppSpacing.rowSpacing) {
+                ZStack {
+                    Circle()
+                        .fill(.gsWarning.opacity(0.12))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 36, weight: .medium))
+                        .foregroundStyle(.gsWarning)
+                }
+
+                VStack(spacing: AppSpacing.compactGap) {
+                    Text("Couldn't Load Finance Data")
+                        .font(BrandFont.semiBold(20))
+                        .foregroundStyle(.gsTextPrimary)
+
+                    Text(errorMessage)
+                        .font(BrandFont.regular(15))
+                        .foregroundStyle(.gsTextSecondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                Button {
+                    Task { await financeVM.loadData(forceRefresh: true) }
+                } label: {
+                    Text("Try Again")
+                        .font(BrandFont.semiBold(17))
+                        .foregroundStyle(.gsTextOnBrand)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: AppSpacing.minTouchTarget)
+                }
+                .buttonStyle(.plain)
+                .background(.gsBrandPrimary)
+                .clipShape(RoundedRectangle(cornerRadius: AppSpacing.buttonRadius, style: .continuous))
+                .padding(.horizontal, AppSpacing.screenPadding * 2)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(AppSpacing.screenPadding)
     }
 }
 

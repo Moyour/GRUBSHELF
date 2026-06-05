@@ -41,11 +41,13 @@ enum AppSpacing {
     // MARK: - Semantic components
 
     /// Vertical padding on the outer filter chip capsule (Home, Pantry).
-    static let filterChipOuterVerticalPadding: CGFloat = 7
+    /// Increased to meet 44pt minimum touch target (accessibility requirement).
+    static let filterChipOuterVerticalPadding: CGFloat = 14
 
     /// Vertical padding on compact priority chips in Home chrome (capsule rows).
     /// Priority chips on Home (Expiring / Low stock / Review) — taller for visibility.
-    static let priorityChipVerticalPadding: CGFloat = 9
+    /// Increased to meet 44pt minimum touch target (accessibility requirement).
+    static let priorityChipVerticalPadding: CGFloat = 14
 
     /// Inner vertical padding for the toast bubble.
     static let toastVerticalPadding: CGFloat = 14

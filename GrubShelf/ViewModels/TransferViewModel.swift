@@ -9,6 +9,8 @@ final class TransferViewModel {
     var isLoading = false
     var errorMessage: String?
     var tripTotalCost: String = ""
+    /// True when `tripTotalCost` was prefilled from a previous logged shop.
+    var didPrefillTripTotal = false
 
     var canTransfer: Bool {
         guard let amount = Double(tripTotalCost.trimmingCharacters(in: .whitespaces)), amount > 0 else {
@@ -75,12 +77,36 @@ final class TransferViewModel {
         }
     }
 
+    /// Prefills trip total from the most recent shop with a logged cost (last 30 days).
+    func loadSuggestedTripTotal() async {
+        let calendar = Calendar.current
+        guard let start = calendar.date(byAdding: .day, value: -30, to: .now) else { return }
+        guard let trips = try? await shoppingTripRepository.fetchByDateRange(
+            householdId: householdId,
+            start: start,
+            end: .now
+        ) else { return }
+
+        guard let last = trips.first(where: { trip in
+            trip.costLogged && (trip.totalCostMinor ?? 0) > 0
+        }), let minor = last.totalCostMinor else {
+            return
+        }
+
+        tripTotalCost = Self.formatMajorAmount(fromMinor: minor)
+        didPrefillTripTotal = true
+    }
+
     func executeTransfer() async -> Bool {
         isLoading = true
         errorMessage = nil
 
-        do {
-            for item in transferItems {
+        let total = transferItems.count
+        var completed = 0
+        var failedItems: [String] = []
+
+        for item in transferItems {
+            do {
                 let qty = Double(item.quantity) ?? item.shoppingItem.quantity
                 let costMinor = Int((Double(item.totalCost) ?? 0) * 100)
                 let costPerUnit = qty > 0 ? bankersRound(Double(costMinor) / qty) : 0
@@ -106,22 +132,42 @@ final class TransferViewModel {
                     )
                     _ = try await transactionRepository.add(transaction)
                 }
+                completed += 1
+            } catch {
+                failedItems.append(item.shoppingItem.name)
             }
+        }
 
+        // Show results
+        if failedItems.isEmpty {
             haptic.impactOccurred()
             await markItemsTransferred()
             await markListTransferredIfComplete()
             await logShoppingTrip()
 
-            let count = transferItems.count
             EngagementStore.shared.recordShoppingAction()
-            ToastManager.shared.show("\(count) item\(count == 1 ? "" : "s") moved to pantry", style: .success)
-
+            ToastManager.shared.show(
+                "\(total) item\(total == 1 ? "" : "s") moved to pantry",
+                style: .success
+            )
             isLoading = false
             return true
-        } catch {
-            errorMessage = error.localizedDescription
-            ToastManager.shared.show("Transfer failed", style: .error)
+        } else {
+            let failedCount = failedItems.count
+            let successCount = completed
+
+            // Create detailed error message with item names
+            let itemsList = failedItems.prefix(3).joined(separator: ", ")
+            let moreText = failedItems.count > 3 ? " and \(failedItems.count - 3) more" : ""
+
+            let message = if successCount > 0 {
+                "\(successCount) of \(total) transferred. Couldn't move: \(itemsList)\(moreText)"
+            } else {
+                "Couldn't move: \(itemsList)\(moreText)"
+            }
+
+            errorMessage = message
+            ToastManager.shared.show(message, style: .error)
             isLoading = false
             return false
         }
@@ -241,12 +287,10 @@ final class TransferViewModel {
     }
 
     private func logShoppingTrip() async {
-        let costMinor: Int? = if let amount = Double(tripTotalCost.trimmingCharacters(in: .whitespaces)), amount > 0 {
-            Int(amount * 100)
-        } else {
-            nil
-        }
-        let costLogged = costMinor != nil
+        let trimmed = tripTotalCost.trimmingCharacters(in: .whitespaces)
+        guard let amount = Double(trimmed), amount > 0 else { return }
+
+        let costMinor = Int(amount * 100)
         let period = await computePeriodString()
 
         let trip = ShoppingTrip(
@@ -257,10 +301,18 @@ final class TransferViewModel {
             totalCostMinor: costMinor,
             itemCount: transferItems.count,
             period: period,
-            costLogged: costLogged
+            costLogged: true
         )
 
         _ = try? await shoppingTripRepository.add(trip)
+    }
+
+    static func formatMajorAmount(fromMinor minor: Int) -> String {
+        let major = Double(minor) / 100.0
+        if major.rounded(.towardZero) == major {
+            return String(format: "%.0f", major)
+        }
+        return String(format: "%.2f", major)
     }
 
     private func computePeriodString() async -> String {

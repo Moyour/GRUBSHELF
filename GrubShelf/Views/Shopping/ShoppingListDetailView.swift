@@ -7,15 +7,27 @@ struct ShoppingListDetailView: View {
     @State private var itemToDelete: ShoppingItem?
 
     private let list: ShoppingList
+    private let userId: UUID
     private let currencyCode: String
+    private let financeVM: FinanceViewModel?
 
-    init(list: ShoppingList, householdId: UUID, userId: UUID, currencyCode: String = "GBP") {
+    init(
+        list: ShoppingList,
+        householdId: UUID,
+        userId: UUID,
+        userRole: UserRole = .member,
+        currencyCode: String = "GBP",
+        financeVM: FinanceViewModel? = nil
+    ) {
         self.list = list
+        self.userId = userId
         self.currencyCode = currencyCode
+        self.financeVM = financeVM
         let vm = ShoppingListViewModel(
             repository: SupabaseShoppingRepository(),
             householdId: householdId,
             userId: userId,
+            userRole: userRole,
             listId: list.listId
         )
         // Initial transferred state from list; refreshed from item-level flags after load
@@ -34,7 +46,7 @@ struct ShoppingListDetailView: View {
                             .foregroundStyle(.gsSuccess)
                             .frame(width: AppSpacing.iconSizeSmall, height: AppSpacing.iconSizeSmall)
 
-                        Text("\(viewModel.transferableItems.count) item\(viewModel.transferableItems.count == 1 ? "" : "s") ready to transfer")
+                        Text("All items checked off — ready for pantry")
                             .font(BrandFont.semiBold(17))
                             .foregroundStyle(.gsTextPrimary)
                             .multilineTextAlignment(.leading)
@@ -52,7 +64,7 @@ struct ShoppingListDetailView: View {
                     .dashboardCardSurface()
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(
-                        "\(viewModel.transferableItems.count) items ready to transfer to pantry"
+                        "All items checked off. Transfer \(viewModel.transferableItems.count) items to pantry"
                     )
                     .accessibilityHint("Double tap Transfer to move items to your pantry")
                 }
@@ -96,9 +108,11 @@ struct ShoppingListDetailView: View {
                         text: $viewModel.newItemName,
                         placeholder: "Search & add item…",
                         submitLabel: .done,
+                        autocorrectionDisabled: true,
                         showClearButton: true,
                         accessibilityLabel: "Search and add item",
                         onSubmit: {
+                            guard viewModel.catalogSuggestions.isEmpty else { return }
                             Task {
                                 await viewModel.addItem()
                                 viewModel.clearSuggestions()
@@ -110,7 +124,7 @@ struct ShoppingListDetailView: View {
 
                     if let warning = viewModel.duplicateWarning {
                         HStack(spacing: AppSpacing.denseSpacing) {
-                            Image(systemName: "exclamationmark.triangle.fill")
+                            Image(systemName: "archivebox.fill")
                                 .foregroundStyle(.gsWarning)
                                 .font(BrandSymbolFont.symbol(12))
                             Text(warning)
@@ -131,12 +145,18 @@ struct ShoppingListDetailView: View {
                         .padding(.top, AppSpacing.smallSpacing)
                     }
 
+                    if !viewModel.catalogSuggestions.isEmpty {
+                        Text("Tap a product below. Use + and − on each item to change quantity.")
+                            .font(BrandFont.regular(13))
+                            .foregroundStyle(.gsTextSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, AppSpacing.smallSpacing)
+                    }
+
                     ForEach(viewModel.catalogSuggestions) { item in
                         Button {
                             Task {
                                 await viewModel.addCatalogItem(item)
-                                viewModel.newItemName = ""
-                                viewModel.clearSuggestions()
                             }
                         } label: {
                             HStack(spacing: AppSpacing.rowSpacing) {
@@ -148,6 +168,11 @@ struct ShoppingListDetailView: View {
                                     Text(item.name)
                                         .font(BrandFont.regular(17))
                                         .foregroundStyle(.gsTextPrimary)
+                                    if let pantryHint = viewModel.pantrySuggestionSubtitle(for: item) {
+                                        Text(pantryHint)
+                                            .font(BrandFont.regular(14))
+                                            .foregroundStyle(.gsWarning)
+                                    }
                                     Text("\(item.defaultCategory) · \(item.defaultUnit.displayName)")
                                         .font(BrandFont.regular(14))
                                         .foregroundStyle(.gsTextSecondary)
@@ -192,12 +217,40 @@ struct ShoppingListDetailView: View {
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
 
+            if !viewModel.awaitingApprovalItems.isEmpty {
+                Section {
+                    ForEach(viewModel.awaitingApprovalItems) { item in
+                        PendingApprovalItemCard(
+                            title: item.name,
+                            subtitle: PendingApprovalCopy.shoppingSubtitle,
+                            showsActions: viewModel.isAdmin,
+                            onApprove: { Task { await viewModel.approveItem(item) } },
+                            onReject: { viewModel.beginRejectItem(item) }
+                        )
+                        .listRowInsets(AppSpacing.listRowCardInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    }
+                } header: {
+                    shoppingDetailSectionHeader(
+                        title: "Pending approval",
+                        count: viewModel.awaitingApprovalItems.count,
+                        emphasis: .standard
+                    )
+                }
+            }
+
             // MARK: - To buy
             Section {
                 ForEach(viewModel.pendingItems) { item in
-                    ShoppingItemRow(item: item) {
-                        Task { await viewModel.toggleComplete(item) }
-                    }
+                    ShoppingItemRow(
+                        item: item,
+                        canToggle: true,
+                        isAdjustingQuantity: viewModel.inflightItemIds.contains(item.itemId),
+                        onToggle: { Task { await viewModel.toggleComplete(item) } },
+                        onIncrementQuantity: { Task { await viewModel.adjustQuantity(itemId: item.itemId, delta: 1) } },
+                        onDecrementQuantity: { Task { await viewModel.adjustQuantity(itemId: item.itemId, delta: -1) } }
+                    )
                     .listRowInsets(AppSpacing.listRowCardInsets)
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -208,12 +261,15 @@ struct ShoppingListDetailView: View {
                             Label("Pantry", systemImage: "archivebox.fill")
                         }
                         .tint(.gsBrandPrimary)
+                        .disabled(viewModel.inflightItemIds.contains(item.itemId))
                     }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            itemToDelete = item
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if viewModel.isAdmin {
+                            Button(role: .destructive) {
+                                itemToDelete = item
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
                 }
@@ -229,7 +285,7 @@ struct ShoppingListDetailView: View {
             if !viewModel.completedItems.isEmpty {
                 Section {
                     ForEach(viewModel.completedItems) { item in
-                        ShoppingItemRow(item: item) {
+                        ShoppingItemRow(item: item, canToggle: true) {
                             Task { await viewModel.toggleComplete(item) }
                         }
                         .opacity(item.transferred ? 0.35 : 0.55)
@@ -244,13 +300,16 @@ struct ShoppingListDetailView: View {
                                     Label("Pantry", systemImage: "archivebox.fill")
                                 }
                                 .tint(.gsBrandPrimary)
+                                .disabled(viewModel.inflightItemIds.contains(item.itemId))
                             }
                         }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                Task { await viewModel.deleteItem(item) }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if viewModel.isAdmin {
+                                Button(role: .destructive) {
+                                    itemToDelete = item
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
                         }
                     }
@@ -319,35 +378,19 @@ struct ShoppingListDetailView: View {
             }
         }
         .sheet(isPresented: $viewModel.showTransferSheet, onDismiss: {
-            Task { await viewModel.refreshTransferredStatus() }
-        }) {
-            let auditVM = ShoppingAuditViewModel(
-                transferableItems: viewModel.transferableItems,
-                pantryItems: viewModel.pantryItems
-            )
-            if auditVM.hasMatches {
-                ShoppingAuditView(
-                    auditViewModel: auditVM,
-                    transferableItems: viewModel.transferableItems,
-                    householdId: list.householdId,
-                    userId: list.createdBy,
-                    listId: list.listId,
-                    currencyCode: currencyCode
-                )
-            } else {
-                TransferConfirmationView(
-                    viewModel: TransferViewModel(
-                        completedItems: viewModel.transferableItems,
-                        pantryRepository: SupabasePantryRepository(),
-                        transactionRepository: SupabaseTransactionRepository(),
-                        shoppingRepository: SupabaseShoppingRepository(),
-                        householdId: list.householdId,
-                        userId: list.createdBy,
-                        listId: list.listId
-                    ),
-                    currencyCode: currencyCode
-                )
+            Task {
+                await viewModel.refreshTransferredStatus()
+                await financeVM?.loadData(forceRefresh: true)
             }
+        }) {
+            TransferFlowSheet(
+                transferableItems: viewModel.transferableItems,
+                pantryItems: viewModel.pantryItems,
+                householdId: list.householdId,
+                userId: userId,
+                listId: list.listId,
+                currencyCode: currencyCode
+            )
         }
         .sheet(isPresented: $viewModel.showCatalogSearch) {
             CatalogSearchSheet(
@@ -372,6 +415,19 @@ struct ShoppingListDetailView: View {
             Button("Cancel", role: .cancel) { itemToDelete = nil }
         } message: {
             Text("Remove \"\(itemToDelete?.name ?? "")\" from this list?")
+        }
+        .alert("Reject item?", isPresented: $viewModel.showRejectReasonPrompt) {
+            TextField("Reason (optional)", text: $viewModel.rejectReasonText)
+            Button("Reject", role: .destructive) {
+                Task { await viewModel.confirmRejectItem() }
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.cancelRejectItem()
+            }
+        } message: {
+            if let item = viewModel.itemToReject {
+                Text("Reject \"\(item.name)\"? The member will see your reason if provided.")
+            }
         }
         .onChange(of: viewModel.newItemName) {
             viewModel.searchCatalog()

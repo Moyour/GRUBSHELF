@@ -30,11 +30,15 @@ struct PantryNavigationFocus: Equatable {
 final class PantryViewModel {
     var items: [PantryItem] = []
     var hasLoaded = false
+    var errorMessage: String?
     var selectedLocationFilter: PantryLocationFilter = .all
     var selectedAttention: PantryAttentionMode = .none
     var searchText: String = ""
     var confidenceScores: [UUID: Double] = [:]
     var itemToEdit: PantryItem?
+    var itemToReject: PantryItem?
+    var rejectReasonText = ""
+    var showRejectReasonPrompt = false
     var showAddSheet = false
     var showRemovalPrompt = false
     var showWasteCostPrompt = false
@@ -42,10 +46,18 @@ final class PantryViewModel {
     var wasteCostText = ""
     private var pendingWasteSource: WasteEventSource?
 
+    /// IDs of pantry items currently involved in an async mutation.
+    /// Views use this to disable per-item action buttons while a call is in flight.
+    private(set) var inflightItemIds: Set<UUID> = []
+
     let repository: PantryRepository
     let householdId: UUID
     let userId: UUID
+    let userRole: UserRole
+    private let approvalService: ApprovalService
     private let wasteEventRepository: WasteEventRepository
+
+    var isAdmin: Bool { userRole == .admin }
     private let financeSettingsRepository: FinanceSettingsRepository
     private var observationTask: Task<Void, Never>?
     private var lastLoadedAt: Date?
@@ -54,11 +66,43 @@ final class PantryViewModel {
     /// Applies focus when opening Pantry from Home / notifications.
     func applyNavigationFocus(_ focus: PantryNavigationFocus) {
         selectedLocationFilter = focus.locationFilter
-        selectedAttention = focus.attention
+        setAttention(focus.attention)
+    }
+
+    func setAttention(_ attention: PantryAttentionMode) {
+        selectedAttention = attention
+        if attention == .expiring {
+            EngagementStore.shared.recordExpiringItemsReview()
+        }
+    }
+
+    /// Approved items shown in the main pantry browse experience.
+    var approvedItems: [PantryItem] {
+        items.filter { $0.approvalStatus == .approved && !$0.archived }
+    }
+
+    /// All items awaiting admin approval.
+    var pendingApprovalItems: [PantryItem] {
+        items.filter { $0.approvalStatus == .pending }
+    }
+
+    /// Current member's submissions still pending.
+    var myPendingItems: [PantryItem] {
+        items.filter { $0.approvalStatus == .pending && $0.createdBy == userId }
+    }
+
+    /// Current member's rejected submissions.
+    var myRejectedItems: [PantryItem] {
+        items.filter { $0.approvalStatus == .rejected && $0.createdBy == userId }
+    }
+
+    func canModifyItem(_ item: PantryItem) -> Bool {
+        if isAdmin { return item.approvalStatus == .approved }
+        return item.approvalStatus == .pending && item.createdBy == userId
     }
 
     var filteredItems: [PantryItem] {
-        var result = items
+        var result = approvedItems
 
         switch selectedLocationFilter {
         case .all:
@@ -108,7 +152,7 @@ final class PantryViewModel {
     // MARK: - Summary counts (Pantry header — matches Home “at a glance”)
 
     private var nonArchivedItems: [PantryItem] {
-        items.filter { !$0.archived }
+        approvedItems
     }
 
     /// Active (non-archived) line items.
@@ -128,8 +172,8 @@ final class PantryViewModel {
 
     /// Expiring or expired items for Home preview (soonest first, max five). Matches dashboard ordering.
     var homeExpiringPreviewItems: [PantryItem] {
-        items
-            .filter { !$0.archived && ($0.state == .expiringSoon || $0.state == .expired) }
+        approvedItems
+            .filter { $0.state == .expiringSoon || $0.state == .expired }
             .sorted { lhs, rhs in
                 (lhs.expiryDate ?? .distantFuture) < (rhs.expiryDate ?? .distantFuture)
             }
@@ -148,20 +192,82 @@ final class PantryViewModel {
         repository: PantryRepository,
         householdId: UUID,
         userId: UUID,
+        userRole: UserRole = .member,
+        approvalService: ApprovalService = ApprovalService(),
         wasteEventRepository: WasteEventRepository = SupabaseWasteEventRepository(),
         financeSettingsRepository: FinanceSettingsRepository = SupabaseFinanceSettingsRepository()
     ) {
         self.repository = repository
         self.householdId = householdId
         self.userId = userId
+        self.userRole = userRole
+        self.approvalService = approvalService
         self.wasteEventRepository = wasteEventRepository
         self.financeSettingsRepository = financeSettingsRepository
+    }
+
+    func approveItem(_ item: PantryItem) async {
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
+        do {
+            let approved = try await approvalService.approvePantryItem(itemId: item.itemId)
+            if let index = items.firstIndex(where: { $0.itemId == item.itemId }) {
+                withAnimation { items[index] = approved }
+            }
+            ApprovalNotificationCoordinator.shared.clearNotified(item.itemId)
+            ToastManager.shared.show("\(approved.name) approved", style: .success)
+        } catch {
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "approve \(item.name)"),
+                style: .error
+            )
+        }
+    }
+
+    func beginRejectItem(_ item: PantryItem) {
+        itemToReject = item
+        rejectReasonText = ""
+        showRejectReasonPrompt = true
+    }
+
+    func confirmRejectItem(skipReason: Bool = false) async {
+        guard let item = itemToReject else { return }
+        let reason = skipReason ? nil : rejectReasonText.trimmingCharacters(in: .whitespacesAndNewlines)
+        itemToReject = nil
+        rejectReasonText = ""
+        showRejectReasonPrompt = false
+        await rejectItem(item, reason: reason?.isEmpty == true ? nil : reason)
+    }
+
+    func cancelRejectItem() {
+        itemToReject = nil
+        rejectReasonText = ""
+        showRejectReasonPrompt = false
+    }
+
+    func rejectItem(_ item: PantryItem, reason: String? = nil) async {
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
+        do {
+            let rejected = try await approvalService.rejectPantryItem(itemId: item.itemId, reason: reason)
+            if let index = items.firstIndex(where: { $0.itemId == item.itemId }) {
+                withAnimation { items[index] = rejected }
+            }
+            ApprovalNotificationCoordinator.shared.clearNotified(item.itemId)
+            ToastManager.shared.show("\(rejected.name) rejected", style: .success)
+        } catch {
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "reject \(item.name)"),
+                style: .error
+            )
+        }
     }
 
     func loadItems(forceRefresh: Bool = false) async {
         if !forceRefresh, let lastLoadedAt, Date.now.timeIntervalSince(lastLoadedAt) < Self.cacheTTL {
             return
         }
+        errorMessage = nil
         do {
             let fetched = try await repository.fetchAll(householdId: householdId)
             withAnimation {
@@ -170,16 +276,18 @@ final class PantryViewModel {
             }
             computeConfidence()
             lastLoadedAt = .now
+            if isAdmin {
+                ApprovalNotificationCoordinator.shared.processPendingItems(
+                    pantryItems: fetched,
+                    shoppingItems: [],
+                    isAdmin: true
+                )
+            }
         } catch {
             hasLoaded = true
-            switch ErrorHandler.classify(error) {
-            case .networkFailure:
-                ToastManager.shared.show("You’re offline—showing your last pantry snapshot", style: .error)
-            case .serverError:
-                ToastManager.shared.show("Can’t reach the server right now", style: .error)
-            default:
-                ToastManager.shared.show("Couldn’t load your pantry", style: .error)
-            }
+            let message = ErrorHandler.userMessage(for: error, action: "load your pantry")
+            errorMessage = message
+            ToastManager.shared.show(message, style: .error)
         }
     }
 
@@ -192,6 +300,13 @@ final class PantryViewModel {
                     self.items = updated
                 }
                 self.computeConfidence()
+                if self.isAdmin {
+                    ApprovalNotificationCoordinator.shared.processPendingItems(
+                        pantryItems: updated,
+                        shoppingItems: [],
+                        isAdmin: true
+                    )
+                }
             }
         }
     }
@@ -210,7 +325,9 @@ final class PantryViewModel {
         }
     }
 
-    func deleteItem(_ item: PantryItem) async {
+    func deleteItem(_ item: PantryItem, successToast: String? = nil) async {
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
         stopObserving()
         do {
             try await withRetry { [repository] in
@@ -220,9 +337,12 @@ final class PantryViewModel {
                 items.removeAll { $0.itemId == item.itemId }
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            ToastManager.shared.show("\(item.name) deleted", style: .success)
+            ToastManager.shared.show(successToast ?? "\(item.name) deleted", style: .success)
         } catch {
-            ToastManager.shared.show("Couldn’t delete \(item.name)", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "delete \(item.name)"),
+                style: .error
+            )
         }
         resumeObserving()
     }
@@ -230,6 +350,9 @@ final class PantryViewModel {
     // MARK: - Quick Increment
 
     func incrementItem(_ item: PantryItem, by amount: Double = 1) async {
+        guard canModifyItem(item) else { return }
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
         guard let index = items.firstIndex(where: { $0.itemId == item.itemId }) else { return }
         var updated = items[index]
         updated.quantity += amount
@@ -250,13 +373,19 @@ final class PantryViewModel {
             if let i = items.firstIndex(where: { $0.itemId == item.itemId }) {
                 withAnimation { items[i] = item }
             }
-            ToastManager.shared.show("Couldn't save quantity for \(item.name)", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "save quantity for \(item.name)"),
+                style: .error
+            )
         }
     }
 
     // MARK: - Quick Decrement
 
     func decrementItem(_ item: PantryItem, by amount: Double = 1) async {
+        guard canModifyItem(item) else { return }
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
         guard let index = items.firstIndex(where: { $0.itemId == item.itemId }) else { return }
         var updated = items[index]
         updated.quantity = max(0, updated.quantity - amount)
@@ -282,11 +411,17 @@ final class PantryViewModel {
             if let i = items.firstIndex(where: { $0.itemId == item.itemId }) {
                 withAnimation { items[i] = item }
             }
-            ToastManager.shared.show("Couldn't save quantity for \(item.name)", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "save quantity for \(item.name)"),
+                style: .error
+            )
         }
     }
 
     func halveItem(_ item: PantryItem) async {
+        guard canModifyItem(item) else { return }
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
         guard let index = items.firstIndex(where: { $0.itemId == item.itemId }) else { return }
         var updated = items[index]
         updated.quantity = max(0, (updated.quantity / 2).rounded(.down))
@@ -312,20 +447,33 @@ final class PantryViewModel {
             if let i = items.firstIndex(where: { $0.itemId == item.itemId }) {
                 withAnimation { items[i] = item }
             }
-            ToastManager.shared.show("Couldn't save quantity for \(item.name)", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "save quantity for \(item.name)"),
+                style: .error
+            )
         }
     }
 
-    func markFinished(_ item: PantryItem) {
+    /// Marks an item as used and removes it from the pantry (no outcome dialog).
+    func markFinished(_ item: PantryItem) async {
+        guard canModifyItem(item) else { return }
+        itemToRemove = item
+        await confirmUsed(outcomeLabel: "Used")
+    }
+
+    /// Opens the full outcome menu (Used / Remove / Expired / Waste) for power users.
+    func showRemovalOptions(for item: PantryItem) {
+        guard canModifyItem(item) else { return }
         itemToRemove = item
         showRemovalPrompt = true
     }
 
     // MARK: - Waste Tracking
 
-    func confirmUsed() async {
+    func confirmUsed(outcomeLabel: String = "deleted") async {
         guard let item = itemToRemove else { return }
-        await deleteItem(item)
+        let name = item.name
+        await deleteItem(item, successToast: outcomeLabel == "Used" ? "Used \(name)" : "\(name) deleted")
         clearRemovalFlowState()
     }
 
@@ -335,18 +483,22 @@ final class PantryViewModel {
         clearRemovalFlowState()
     }
 
-    func beginExpiredRemoval() {
+    func beginExpiredRemoval(for item: PantryItem? = nil) {
+        if let item { itemToRemove = item }
         pendingWasteSource = .expired
         showWasteCostPrompt = true
     }
 
-    func beginWasteRemoval() {
+    func beginWasteRemoval(for item: PantryItem? = nil) {
+        if let item { itemToRemove = item }
         pendingWasteSource = .waste
         showWasteCostPrompt = true
     }
 
     func saveWasteEvent(skipCost: Bool = false) async {
         guard let item = itemToRemove, let pendingWasteSource else { return }
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
 
         let costMinor: Int? = if skipCost {
             nil
@@ -372,7 +524,10 @@ final class PantryViewModel {
         do {
             _ = try await wasteEventRepository.add(event)
         } catch {
-            ToastManager.shared.show("Couldn’t save that waste note", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "save that waste note"),
+                style: .error
+            )
         }
 
         await deleteItem(item)

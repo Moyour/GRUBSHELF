@@ -4,6 +4,7 @@ struct BudgetSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let userId: UUID
+    var canEditBudget: Bool = true
     @State private var budgetPeriod: BudgetPeriod = .monthly
     @State private var budgetAmountText = ""
     @State private var periodStartDay = 1
@@ -15,42 +16,64 @@ struct BudgetSettingsSheet: View {
 
     private let currencies = ["GBP", "USD", "EUR", "NGN", "CAD", "AUD"]
 
+    private var isBudgetValid: Bool {
+        guard !budgetAmountText.isEmpty else { return true } // Empty is OK (user hasn't typed yet)
+        guard let amount = Double(budgetAmountText) else { return false }
+        return amount > 0
+    }
+
+    private var budgetErrorMessage: String? {
+        guard !budgetAmountText.isEmpty else { return nil }
+        guard let amount = Double(budgetAmountText) else {
+            return "Must be a valid number"
+        }
+        if amount <= 0 {
+            return "Budget must be greater than 0"
+        }
+        return nil
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                if !canEditBudget {
+                    Section {
+                        Text("Only household admins can edit budget settings. You can still view spending in Expense.")
+                            .font(BrandFont.regular(14))
+                            .foregroundStyle(.gsTextSecondary)
+                    }
+                }
+
                 Section {
                     Picker("Period", selection: $budgetPeriod) {
                         Text("Weekly").tag(BudgetPeriod.weekly)
                         Text("Monthly").tag(BudgetPeriod.monthly)
                     }
                     .font(BrandFont.regular(17))
+                    .disabled(!canEditBudget)
 
-                    HStack {
-                        Text("Budget")
-                            .font(BrandFont.regular(17))
-                        Spacer()
-                        TextField("0.00", text: $budgetAmountText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .font(BrandFont.regular(17))
-                            .frame(maxWidth: 120)
+                    VStack(alignment: .leading, spacing: AppSpacing.compactGap) {
+                        HStack {
+                            Text("Budget")
+                                .font(BrandFont.regular(17))
+                            Spacer()
+                            TextField("0.00", text: $budgetAmountText)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .font(BrandFont.regular(17))
+                                .frame(maxWidth: 120)
+                                .disabled(!canEditBudget)
+                        }
+
+                        if let errorMessage = budgetErrorMessage {
+                            Text(errorMessage)
+                                .font(BrandFont.regular(13))
+                                .foregroundStyle(.gsDanger)
+                        }
                     }
 
-                    if budgetPeriod == .weekly {
-                        Picker("Start day", selection: $periodStartDay) {
-                            ForEach(1...7, id: \.self) { day in
-                                Text(Calendar.current.weekdaySymbols[day % 7]).tag(day)
-                            }
-                        }
-                        .font(BrandFont.regular(17))
-                    } else {
-                        Picker("Start day", selection: $periodStartDay) {
-                            ForEach(1...28, id: \.self) { day in
-                                Text(ordinal(day)).tag(day)
-                            }
-                        }
-                        .font(BrandFont.regular(17))
-                    }
+                    // period_start_day picker hidden — neither app nor digest uses this value yet.
+                    // Re-enable once period boundaries respect the chosen start day in both Swift and the digest Edge Function.
 
                     Picker("Currency", selection: $currency) {
                         ForEach(currencies, id: \.self) { c in
@@ -58,6 +81,7 @@ struct BudgetSettingsSheet: View {
                         }
                     }
                     .font(BrandFont.regular(17))
+                    .disabled(!canEditBudget)
                 } header: {
                     Text("Budget settings")
                 }
@@ -70,17 +94,19 @@ struct BudgetSettingsSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task { await save() }
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Text("Save")
+                if canEditBudget {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            Task { await save() }
+                        } label: {
+                            if isSaving {
+                                ProgressView()
+                            } else {
+                                Text("Save")
+                            }
                         }
+                        .disabled(isSaving || !isBudgetValid)
                     }
-                    .disabled(isSaving)
                 }
             }
             .task { await loadSettings() }

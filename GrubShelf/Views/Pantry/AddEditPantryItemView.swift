@@ -3,6 +3,7 @@ import SwiftUI
 struct AddEditPantryItemView: View {
     @State var viewModel: AddEditPantryItemViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showDeleteConfirmation = false
 
     init(viewModel: AddEditPantryItemViewModel) {
         _viewModel = State(initialValue: viewModel)
@@ -149,9 +150,38 @@ struct AddEditPantryItemView: View {
                             .foregroundStyle(.gsDanger)
                     }
                 }
+
+                // Delete button (only when editing)
+                if viewModel.isEditing {
+                    Section {
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Text("Delete Item")
+                                    .font(BrandFont.semiBold(16))
+                                Spacer()
+                            }
+                        }
+                        .disabled(viewModel.isLoading)
+                    }
+                }
             }
             .scrollContentBackground(.hidden)
             .background(.gsBackground)
+            .alert("Delete this item?", isPresented: $showDeleteConfirmation) {
+                Button("Delete", role: .destructive) {
+                    Task {
+                        if await viewModel.delete() {
+                            dismiss()
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will permanently delete \(viewModel.name) from your pantry.")
+            }
             .navigationTitle(viewModel.isEditing ? "Edit item" : "Add item")
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(!viewModel.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

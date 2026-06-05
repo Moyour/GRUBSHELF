@@ -10,6 +10,7 @@ final class FinanceViewModel {
     var historicalSnapshots: [PeriodSnapshot] = []
     var isLoading = false
     var hasLoaded = false
+    var errorMessage: String?
     var tripToLog: ShoppingTrip?
     var retroactiveCostText = ""
 
@@ -138,6 +139,7 @@ final class FinanceViewModel {
 
     func loadData(forceRefresh: Bool = false) async {
         isLoading = true
+        errorMessage = nil
 
         do {
             financeSettings = try await financeSettingsRepository.fetch(userId: userId)
@@ -175,7 +177,8 @@ final class FinanceViewModel {
             wasteEvents = fetchedWaste
             historicalSnapshots = fetchedSnapshots
         } catch {
-            ToastManager.shared.show("Failed to load finance data", style: .error)
+            errorMessage = "Failed to load finance data"
+            ToastManager.shared.show(errorMessage!, style: .error)
         }
 
         isLoading = false
@@ -240,14 +243,16 @@ final class FinanceViewModel {
     }
 
     private func computePeriod(for date: Date, budgetPeriod: BudgetPeriod) -> String {
-        let calendar = Calendar.current
         switch budgetPeriod {
         case .weekly:
-            let year = calendar.component(.yearForWeekOfYear, from: date)
-            let week = calendar.component(.weekOfYear, from: date)
+            // Use ISO 8601 calendar so week keys match the server-side digest (Monday start, ISO week numbering).
+            var iso = Calendar(identifier: .iso8601)
+            iso.timeZone = .current
+            let year = iso.component(.yearForWeekOfYear, from: date)
+            let week = iso.component(.weekOfYear, from: date)
             return String(format: "%d-W%02d", year, week)
         case .monthly:
-            let comps = calendar.dateComponents([.year, .month], from: date)
+            let comps = Calendar.current.dateComponents([.year, .month], from: date)
             return String(format: "%d-%02d", comps.year ?? 1970, comps.month ?? 1)
         }
     }
