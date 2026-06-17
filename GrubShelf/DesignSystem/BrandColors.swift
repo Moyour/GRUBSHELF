@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 // MARK: - Hex initializer
 extension Color {

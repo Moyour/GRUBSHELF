@@ -31,7 +31,9 @@ struct ToastView: View {
             Text(message.text)
                 .font(BrandFont.regular(17))
                 .foregroundStyle(.gsTextPrimary)
-                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .lineLimit(6)
+                .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 0)
 
@@ -58,7 +60,7 @@ struct ToastView: View {
 // MARK: - View Modifier
 
 struct ToastModifier: ViewModifier {
-    let toast: ToastManager
+    @Bindable var toast: ToastManager
 
     func body(content: Content) -> some View {
         content.overlay(alignment: .top) {
@@ -68,10 +70,10 @@ struct ToastModifier: ViewModifier {
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .padding(.top, AppSpacing.smallSpacing)
-                .zIndex(999)
+                .zIndex(100_000)
             }
         }
-        .animation(.spring(duration: 0.35, bounce: 0.2), value: toast.current)
+        .animation(.spring(duration: 0.35, bounce: 0.2), value: toast.current?.id)
     }
 }
 

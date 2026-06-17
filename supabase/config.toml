@@ -149,7 +149,7 @@ enabled = true
 # in emails.
 site_url = "http://127.0.0.1:3000"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000", "grubshelf://reset-password"]
+additional_redirect_urls = ["https://127.0.0.1:3000"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).
@@ -225,7 +225,7 @@ sender_name = "GrubShelf"
 # Signup email verification (local CLI). For hosted projects, also set the
 # "Confirm signup" template in Dashboard → Authentication → Email Templates.
 [auth.email.template.confirmation]
-subject = "Verify your GrubShelf email"
+subject = "Welcome to GrubShelf! Verify your email"
 content_path = "./supabase/templates/confirmation.html"
 
 [auth.email.template.recovery]
@@ -329,7 +329,7 @@ email_optional = false
 # Enable when ready. Add Web + iOS Client IDs from Google Cloud Console to Supabase Dashboard for hosted.
 # For local dev: set client_id, secret via env. See docs/GOOGLE_SIGNIN_SETUP.md
 [auth.external.google]
-enabled = false
+enabled = true
 client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET)"
 skip_nonce_check = true
@@ -371,8 +371,19 @@ authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
 
-# Household invite emails (Resend). Deploy: supabase functions deploy send-household-invite
-# Secrets: RESEND_API_KEY, optional HOUSEHOLD_INVITE_EMAIL_FROM (verified domain in production).
+# Daily digest emails (Office365 SMTP). Triggered by pg_cron with service-role Bearer.
+# Handler validates Authorization against SUPABASE_SERVICE_ROLE_KEY (see _shared/service_role_auth.ts).
+# Secrets: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
+[functions.send-daily-digest]
+verify_jwt = false
+
+# Push dispatch from DB trigger; service-role Bearer only (same auth helper).
+[functions.send-push]
+verify_jwt = false
+
+# Household invite emails. Deploy: supabase functions deploy send-household-invite
+# Prefer Resend: RESEND_API_KEY, optional HOUSEHOLD_INVITE_EMAIL_FROM
+# Or SMTP (when RESEND_API_KEY is unset): SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
 [functions.send-household-invite]
 verify_jwt = true
 

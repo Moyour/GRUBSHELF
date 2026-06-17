@@ -10,9 +10,11 @@
 
 - **CreateHouseholdView** — Accept a household invite or create a new household after sign-in.
 
-- **ContentView** — Main app: switches between Home, Shop, and Expense; can open profile, settings, add item, and log purchase.
+- **ContentView** — Main app: **Home**, **Pantry**, **Shop**, **Expense** tabs; profile sheet, pending approvals, add item hub, log purchase.
 
-- **HomeRootView (Home tab)** — Your shelf: search, filter, list of pantry items, quick actions, and links to overview and profile.
+- **HomeRootView (Home tab)** — Today feed: household activity, expiring/low-stock cues, shortcuts to pantry/shop/expense; pull to refresh.
+
+- **PantryView (Pantry tab)** — Full inventory: location filters, search, expiry/low-stock attention modes, add item, approvals strip for admins.
 
 - **Overview sheet** — Full dashboard-style summary (health, cards, shortcuts) over the home inventory.
 
@@ -46,11 +48,7 @@
 
 - **BudgetSettingsSheet** — Budget amount, period, currency, etc.
 
-- **LogPurchaseSheet** — Log a purchase amount, date, and store; optional receipt scan.
-
-- **ReceiptScanSheet** — Pick or snap a receipt and process it.
-
-- **ReceiptConfirmationSheet** — Review parsed receipt data before saving.
+- **ReceiptFlowSheet** — Single sheet: scan receipt, confirm OCR total/lines, or enter amount manually; logs one budget trip with `cost_logged`.
 
 - **ProfileView** — Account info, household name, link to settings, family, export, sign out, delete account.
 
@@ -74,10 +72,6 @@
 
 - **PrivacyView** — Privacy policy.
 
-Not wired into navigation (code exists but no current path to them):
+Legacy / alternate paths (not primary navigation):
 
-- **PantryView** — Standalone pantry screen; the app uses Home instead.
-
-- **AddFirstItemView** — Not referenced elsewhere.
-
-- **DashboardGlassLayout** — Alternate layout experiment, not a user-facing route.
+- **AddFirstItemView** — Superseded by **PostOnboardingSetupView** after household create.

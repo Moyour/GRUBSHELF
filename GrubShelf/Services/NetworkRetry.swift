@@ -17,6 +17,15 @@ func withRetry<T>(
             return try await operation()
         } catch {
             lastError = error
+
+            // Cooperative cancellation is intentional — never retry.
+            if error is CancellationError {
+                throw error
+            }
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                throw error
+            }
+
             let classified = ErrorHandler.classify(error)
 
             // Don't retry non-transient errors

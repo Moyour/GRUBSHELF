@@ -36,6 +36,9 @@ struct DashboardOverviewContent: View {
                 animate: animateScore
             )
 
+            LogGroceriesCard { onQuickAction?(.addItem) }
+                .padding(.horizontal, AppSpacing.screenPadding)
+
             if showInsightsCarousel {
                 InsightsCarousel(
                     viewModel: viewModel,
@@ -53,6 +56,9 @@ struct DashboardOverviewContent: View {
                 ContextualAlertsSection(
                     expiringItems: viewModel.expiringItems,
                     lowStockCount: viewModel.lowStockCount,
+                    householdId: viewModel.householdId,
+                    userId: viewModel.userId,
+                    userRole: viewModel.userRole,
                     onNavigateToPantry: onNavigateToPantry
                 )
 
@@ -67,19 +73,10 @@ struct DashboardOverviewContent: View {
                     .buttonStyle(.plain)
                 }
 
-                HStack(alignment: .top, spacing: AppSpacing.mediumSpacing) {
-                    Button { onNavigateToShopping?() } label: {
-                        RichShoppingCard(viewModel: viewModel)
-                    }
-                    .buttonStyle(.plain)
-                    .frame(minWidth: 0, maxWidth: .infinity)
-
-                    RichBudgetCompactCard(
-                        financeVM: financeVM,
-                        onNavigateToInsights: onNavigateToInsights
-                    )
-                    .frame(minWidth: 0, maxWidth: .infinity)
+                Button { onNavigateToShopping?() } label: {
+                    RichShoppingCard(viewModel: viewModel)
                 }
+                .buttonStyle(.plain)
 
                 if viewModel.staleCount > 0 {
                     RichNeedsReviewCard(count: viewModel.staleCount) {
@@ -406,28 +403,30 @@ struct InsightsCarousel: View {
     /// Must match `HStack` spacing and `containerRelativeFrame` spacing so snap alignment and gaps stay consistent.
     private static let interCardSpacing = AppSpacing.mediumSpacing
 
+    /// Returns the top 2 most relevant insights (expiring and waste prioritized, budget moved to Insights tab).
     private var cards: [InsightCardData] {
         var result: [InsightCardData] = []
 
-        // Most purchased item → Insights
-        if let item = viewModel.mostPurchasedItem {
+        // Expiring items → Pantry tab (highest priority)
+        if viewModel.expiringCount > 0 {
             result.append(InsightCardData(
-                icon: "bag.fill",
-                stat: "\(viewModel.mostPurchasedCount)x",
-                description: "Most frequent purchase: \(item)",
-                color: .gsBrandPrimary,
-                onTap: onNavigateToInsights
+                icon: "clock.badge.exclamationmark",
+                stat: "\(viewModel.expiringCount)",
+                description: "\(viewModel.expiringCount) item\(viewModel.expiringCount == 1 ? "" : "s") expiring soon",
+                color: .gsWarning,
+                isHero: true,
+                onTap: onNavigateToPantry
             ))
         }
 
-        // Waste status → Insights (hero candidate when zero waste)
+        // Waste status → Insights
         if viewModel.wasteItemCount == 0 {
             result.append(InsightCardData(
                 icon: "leaf.fill",
                 stat: "No waste",
-                description: "No waste events logged this month",
+                description: "No waste events this month",
                 color: .gsSuccess,
-                isHero: true,
+                isHero: result.isEmpty,
                 onTap: onNavigateToInsights
             ))
         } else {
@@ -437,104 +436,37 @@ struct InsightsCarousel: View {
             result.append(InsightCardData(
                 icon: "trash.fill",
                 stat: "\(viewModel.wasteItemCount)",
-                description: "Waste events this month\(costStr)",
+                description: "Waste events\(costStr)",
                 color: .gsDanger,
                 onTap: onNavigateToInsights
             ))
         }
 
-        // Shopping completion → Shopping tab
-        if viewModel.shoppingTotal > 0 {
-            let pct = Int(viewModel.completionPercentage)
+        // Most purchased item → Insights (fills second slot if available)
+        if result.count < 2, let item = viewModel.mostPurchasedItem {
             result.append(InsightCardData(
-                icon: "cart.fill",
-                stat: "\(pct)%",
-                description: pct == 100
-                    ? "Shopping list completed"
-                    : "Shopping progress: \(viewModel.shoppingCompleted) of \(viewModel.shoppingTotal)",
+                icon: "bag.fill",
+                stat: "\(viewModel.mostPurchasedCount)x",
+                description: "Most purchased: \(item)",
                 color: .gsBrandPrimary,
-                onTap: onNavigateToShopping
-            ))
-        }
-
-        // Budget usage → Insights
-        if financeVM.hasBudget {
-            let pct = Int(financeVM.spendProgress * 100)
-            result.append(InsightCardData(
-                icon: "sterlingsign.circle.fill",
-                stat: "\(pct)%",
-                description: financeVM.budgetRemainingMinor >= 0
-                    ? "Remaining: \(financeVM.budgetRemainingMinor.currencyFormatted(currencyCode: financeVM.currencyCode))"
-                    : "Over budget",
-                color: financeVM.budgetRemainingMinor >= 0 ? .gsBrandPrimary : .gsDanger,
                 onTap: onNavigateToInsights
             ))
         }
 
-        // Expiring items → Pantry tab
-        if viewModel.expiringCount > 0 {
-            result.append(InsightCardData(
-                icon: "clock.badge.exclamationmark",
-                stat: "\(viewModel.expiringCount)",
-                description: "Upcoming expiry: \(viewModel.expiringCount) item\(viewModel.expiringCount == 1 ? "" : "s")",
-                color: .gsWarning,
-                onTap: onNavigateToPantry
-            ))
-        }
-
-        // If no hero was set, promote the first card
-        if !result.isEmpty && !result.contains(where: { $0.isHero }) {
-            result[0] = InsightCardData(
-                icon: result[0].icon,
-                stat: result[0].stat,
-                description: result[0].description,
-                color: result[0].color,
-                isHero: true,
-                onTap: result[0].onTap
-            )
-        }
-
-        return result
+        return Array(result.prefix(2))
     }
 
     var body: some View {
         if !cards.isEmpty {
-            ViewThatFits(in: .horizontal) {
-                packedInsightsRow
-                scrollingInsightsRow
-            }
-            .padding(.bottom, AppSpacing.smallSpacing)
-        }
-    }
-
-    /// Equal-width row when the device is wide enough for `minWidth` on every card (no horizontal scroll).
-    private var packedInsightsRow: some View {
-        HStack(spacing: Self.interCardSpacing) {
-            ForEach(cards) { card in
-                InsightCard(data: card)
-                    .frame(
-                        minWidth: DashboardResponsiveLayout.insightsCarouselPackedMinCardWidth,
-                        maxWidth: .infinity
-                    )
-            }
-        }
-        .padding(.horizontal, AppSpacing.screenPadding)
-    }
-
-    /// Peeking card carousel when packed layout does not fit.
-    private var scrollingInsightsRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Self.interCardSpacing) {
                 ForEach(cards) { card in
                     InsightCard(data: card)
-                        .containerRelativeFrame(.horizontal, count: 5, span: 4, spacing: Self.interCardSpacing)
+                        .frame(maxWidth: .infinity)
                 }
             }
-            .scrollTargetLayout()
+            .padding(.horizontal, AppSpacing.screenPadding)
+            .padding(.bottom, AppSpacing.smallSpacing)
         }
-        .scrollClipDisabled()
-        .scrollTargetBehavior(.viewAligned)
-        .contentMargins(.horizontal, AppSpacing.screenPadding, for: .scrollContent)
     }
 }
 
@@ -607,13 +539,21 @@ struct InsightCard: View {
 struct ContextualAlertsSection: View {
     let expiringItems: [PantryItem]
     let lowStockCount: Int
+    var householdId: UUID?
+    var userId: UUID?
+    var userRole: UserRole = .member
     var onNavigateToPantry: (() -> Void)?
 
     var body: some View {
         VStack(spacing: AppSpacing.rowSpacing) {
             if !expiringItems.isEmpty {
                 NavigationLink {
-                    ExpiryCalendarView(items: expiringItems)
+                    ExpiryCalendarView(
+                        items: expiringItems,
+                        householdId: householdId,
+                        userId: userId,
+                        userRole: userRole
+                    )
                 } label: {
                     RichExpiryCard(items: expiringItems)
                 }
@@ -1562,5 +1502,49 @@ struct DashboardCard<Content: View>: View {
             .padding(AppSpacing.cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .dashboardCardSurface()
+    }
+}
+
+// MARK: - Log Groceries Card
+
+/// Prominent call-to-action for the primary user action: logging groceries after shopping.
+struct LogGroceriesCard: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: AppSpacing.rowSpacing) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: AppSpacing.iconRadius)
+                        .fill(BrandPalette.Teal.s800)
+                        .frame(width: AppSpacing.iconSizeLarge, height: AppSpacing.iconSizeLarge)
+                    Image(systemName: "bag.fill.badge.plus")
+                        .font(BrandSymbolFont.symbol(22))
+                        .foregroundStyle(.gsTextOnBrand)
+                }
+                VStack(alignment: .leading, spacing: AppSpacing.compactGap) {
+                    Text("Log your groceries")
+                        .font(BrandFont.semiBold(17))
+                        .foregroundStyle(.gsTextOnBrand)
+                        .lineLimit(1)
+                    Text("Just got back from shopping? Add what you bought.")
+                        .font(BrandFont.regular(14))
+                        .foregroundStyle(Color.gsTextOnBrand.opacity(0.7))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(BrandSymbolFont.symbol(14, weight: .semibold))
+                    .foregroundStyle(Color.gsTextOnBrand.opacity(0.6))
+            }
+            .padding(AppSpacing.cardPadding)
+            .background(
+                RoundedRectangle(cornerRadius: AppSpacing.cardRadius)
+                    .fill(BrandPalette.Teal.s800)
+            )
+        }
+        .buttonStyle(DashboardScaleButtonStyle(scale: 0.97))
+        .accessibilityLabel("Log your groceries. Opens add items.")
     }
 }

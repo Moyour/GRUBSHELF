@@ -49,7 +49,7 @@ extension Locale {
         return Locale(identifier: identifier)
     }
 
-    /// SF Symbol for currency-themed empty states. Uses the user’s budget currency when known; unknown codes default to **GBP** (sterling).
+    /// SF Symbol for currency-themed empty states. Uses the user's budget currency when known; unknown codes default to **GBP** (sterling).
     static func currencyCircleSymbolName(for currencyCode: String) -> String {
         switch currencyCode.uppercased() {
         case "GBP": return "sterlingsign.circle"

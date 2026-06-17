@@ -45,7 +45,7 @@ enum ShoppingListWidgetSnapshotBuilder {
             let sampleLines: [ShoppingListWidgetPendingLine] = pending
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 .prefix(maxTitlesPerList)
-                .map { ShoppingListWidgetPendingLine(itemId: $0.itemId, title: $0.name) }
+                .map { ShoppingListWidgetPendingLine(itemId: $0.itemId, title: $0.name, quantity: $0.quantity) }
 
             payloads.append(
                 ShoppingListWidgetListPayload(

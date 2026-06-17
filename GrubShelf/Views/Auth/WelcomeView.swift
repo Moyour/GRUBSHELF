@@ -73,6 +73,16 @@ struct WelcomeView: View {
             .padding(.horizontal, AppSpacing.screenPadding)
             .frame(maxWidth: .infinity)
 
+            HStack(spacing: AppSpacing.denseSpacing) {
+                Image(systemName: "lock.shield.fill")
+                    .font(BrandSymbolFont.symbol(13))
+                    .foregroundStyle(.gsTextSecondary)
+                Text("Your data stays private. We never sell it.")
+                    .font(BrandFont.regular(13))
+                    .foregroundStyle(.gsTextSecondary)
+            }
+            .padding(.horizontal, AppSpacing.screenPadding)
+
             if let error = authService.errorMessage {
                 Text(error)
                     .font(BrandFont.regular(14))
@@ -93,25 +103,29 @@ struct WelcomeView: View {
 
     // MARK: - Google Sign In
 
+    @MainActor
     private func handleGoogleSignIn() async {
+        if GIDSignIn.sharedInstance.configuration == nil {
+            _ = GoogleSignInSupport.configureFromAppConfig()
+        }
         guard GIDSignIn.sharedInstance.configuration != nil else {
-            authService.errorMessage = "Google Sign-In is not configured. Add a valid GOOGLE_CLIENT_ID to Config.plist."
+            authService.errorMessage = GoogleSignInSupport.configurationErrorMessage
             return
         }
 
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+        guard let presentingViewController = GoogleSignInSupport.viewControllerForSignIn() else {
             authService.errorMessage = "Unable to present sign in"
             return
         }
 
         do {
-            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController)
+            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
 
             guard let idToken = result.user.idToken?.tokenString else {
                 authService.errorMessage = "Invalid Google credential"
                 return
             }
+            GoogleSignInTrace.logIDTokenClaims(idToken)
             let accessToken = result.user.accessToken.tokenString
 
             await authService.signInWithGoogle(idToken: idToken, accessToken: accessToken)

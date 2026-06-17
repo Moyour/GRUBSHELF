@@ -115,6 +115,7 @@ private struct CalmHeroCard: View {
     let shoppingTotal: Int
     var onOpenExpiryCalendar: () -> Void
     var onOpenPantryTab: (PantryNavigationFocus?) -> Void
+    var onNavigateToShopping: (() -> Void)?
 
     private enum HeroState {
         case expiring(names: [String], soonestDate: Date?)
@@ -158,7 +159,7 @@ private struct CalmHeroCard: View {
         case .lowStock(let count):
             return String(format: String(localized: "Running low on %lld staples"), Int64(count))
         case .coldStart:
-            return String(localized: "Your pantry is empty")
+            return String(localized: "Start with a shopping list")
         case .allClear:
             return String(localized: "You're all set")
         }
@@ -178,7 +179,7 @@ private struct CalmHeroCard: View {
         case .lowStock:
             return String(localized: "Time to restock a few essentials")
         case .coldStart:
-            return String(localized: "Add your first items to get started")
+            return String(localized: "Your pantry fills itself after you shop")
         case .allClear:
             return String(localized: "Pantry looks good this week")
         }
@@ -188,7 +189,7 @@ private struct CalmHeroCard: View {
         switch heroState {
         case .expiring: onOpenExpiryCalendar
         case .lowStock: { onOpenPantryTab(.lowStock) }
-        case .coldStart: { onOpenPantryTab(nil) }
+        case .coldStart: { (onNavigateToShopping ?? { onOpenPantryTab(nil) })() }
         case .allClear: { onOpenPantryTab(nil) }
         }
     }
@@ -197,7 +198,7 @@ private struct CalmHeroCard: View {
         switch heroState {
         case .expiring: String(localized: "View items →")
         case .lowStock: String(localized: "View low stock →")
-        case .coldStart: String(localized: "Add items →")
+        case .coldStart: String(localized: "Create a list →")
         case .allClear: String(localized: "Open pantry →")
         }
     }
@@ -873,7 +874,7 @@ struct HomeDashboardChrome: View {
     private var actionCards: [ActionDef] {
         var cards: [ActionDef] = []
 
-        // 1. Urgent expiry (within 2 days)
+        // 1. Urgent expiry (within 2 days) — shows count of items expiring soon
         if let topExpiring = dashboardVM.expiringItems.first,
            let expiry = topExpiring.expiryDate {
             let daysUntil = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: .now), to: Calendar.current.startOfDay(for: expiry)).day ?? 99
@@ -886,26 +887,35 @@ struct HomeDashboardChrome: View {
                 } else {
                     dayLabel = String(localized: "expires in 2 days")
                 }
+                let expiringCount = dashboardVM.expiringItems.count
+                let itemsLabel = expiringCount == 1
+                    ? String(localized: "1 item")
+                    : String(format: String(localized: "%lld items"), Int64(expiringCount))
                 cards.append(ActionDef(
                     id: "expiry",
                     emoji: "⏰",
                     tintColors: [BrandPalette.Amber.s400, BrandPalette.Amber.s700],
-                    title: "\(topExpiring.name) \(dayLabel)",
-                    subtitle: String(localized: "Mark as used or log waste"),
+                    title: String(localized: "Expiring soon (\(itemsLabel))"),
+                    subtitle: dayLabel,
                     action: onOpenExpiryCalendar
                 ))
             }
         }
 
-        // 2. Shopping list in progress
+        // 2. Shopping list in progress — shows list name with item count
         if dashboardVM.shoppingTotal > 0 && dashboardVM.shoppingCompleted < dashboardVM.shoppingTotal {
             let remaining = dashboardVM.shoppingTotal - dashboardVM.shoppingCompleted
-            let pct = Int(Double(dashboardVM.shoppingCompleted) / Double(dashboardVM.shoppingTotal) * 100)
+            let listName = shoppingListsVM.homePrimaryListPreview?.list.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedListName = (listName?.isEmpty == false ? listName! : String(localized: "Shopping list"))
+            let total = dashboardVM.shoppingTotal
+            let itemsLabel = total == 1
+                ? String(localized: "1 item")
+                : String(format: String(localized: "%lld items"), Int64(total))
             cards.append(ActionDef(
                 id: "shopping",
                 emoji: "🛍️",
                 tintColors: [BrandPalette.Teal.s400, BrandPalette.Teal.s700],
-                title: String(format: String(localized: "Shopping list %lld%% done"), Int64(pct)),
+                title: "\(resolvedListName) (\(itemsLabel))",
                 subtitle: remaining == 1
                     ? String(localized: "1 item remaining")
                     : String(format: String(localized: "%lld items remaining"), Int64(remaining)),
@@ -945,7 +955,8 @@ struct HomeDashboardChrome: View {
                 shoppingCompleted: dashboardVM.shoppingCompleted,
                 shoppingTotal: dashboardVM.shoppingTotal,
                 onOpenExpiryCalendar: onOpenExpiryCalendar,
-                onOpenPantryTab: onOpenPantryTab
+                onOpenPantryTab: onOpenPantryTab,
+                onNavigateToShopping: onNavigateToShopping
             )
 
             // 2.5 Quick actions
@@ -954,18 +965,29 @@ struct HomeDashboardChrome: View {
                 .padding(.top, AppSpacing.sectionSpacing)
 
             VStack(alignment: .leading, spacing: AppSpacing.sectionSpacing) {
-                // 3. Story bubbles strip
-                InsightStoryStrip(
-                    shoppingCompleted: dashboardVM.shoppingCompleted,
-                    shoppingTotal: dashboardVM.shoppingTotal,
-                    hasBudget: financeVM.hasBudget,
-                    lowStockCount: dashboardVM.lowStockCount,
-                    wasteItemCount: dashboardVM.wasteItemCount,
-                    currentStreak: dashboardVM.currentStreak,
-                    onNavigateToShopping: onNavigateToShopping,
-                    onNavigateToInsights: onNavigateToInsights,
-                    onOpenPantryTab: onOpenPantryTab
-                )
+                // 3. "At a glance" section
+                VStack(alignment: .leading, spacing: AppSpacing.smallSpacing) {
+                    HomeSectionTitle(
+                        systemImage: "square.grid.2x2.fill",
+                        title: String(localized: "At a glance")
+                    )
+                    .padding(.horizontal, AppSpacing.screenPadding)
+
+                    GlanceGridView(
+                        totalPantryItems: dashboardVM.totalPantryItems,
+                        categoriesCount: dashboardVM.categoriesCount,
+                        expiringCount: dashboardVM.expiringCount,
+                        hasBudget: financeVM.hasBudget,
+                        spendProgress: financeVM.spendProgress,
+                        budgetRemainingMinor: financeVM.budgetRemainingMinor,
+                        currencyCode: financeVM.currencyCode,
+                        wasteItemCount: dashboardVM.wasteItemCount,
+                        onOpenPantryTab: onOpenPantryTab,
+                        onNavigateToInsights: onNavigateToInsights,
+                        onOpenExpiryCalendar: onOpenExpiryCalendar
+                    )
+                    .padding(.horizontal, AppSpacing.screenPadding)
+                }
 
                 // 4. Contextual action cards (0-2)
                 if !actionCards.isEmpty {
@@ -990,29 +1012,18 @@ struct HomeDashboardChrome: View {
                     onNavigateToShopping: onNavigateToShopping
                 )
 
-                // 6. "At a glance" section
-                VStack(alignment: .leading, spacing: AppSpacing.smallSpacing) {
-                    HomeSectionTitle(
-                        systemImage: "square.grid.2x2.fill",
-                        title: String(localized: "At a glance")
-                    )
-                    .padding(.horizontal, AppSpacing.screenPadding)
-
-                    GlanceGridView(
-                        totalPantryItems: dashboardVM.totalPantryItems,
-                        categoriesCount: dashboardVM.categoriesCount,
-                        expiringCount: dashboardVM.expiringCount,
-                        hasBudget: financeVM.hasBudget,
-                        spendProgress: financeVM.spendProgress,
-                        budgetRemainingMinor: financeVM.budgetRemainingMinor,
-                        currencyCode: financeVM.currencyCode,
-                        wasteItemCount: dashboardVM.wasteItemCount,
-                        onOpenPantryTab: onOpenPantryTab,
-                        onNavigateToInsights: onNavigateToInsights,
-                        onOpenExpiryCalendar: onOpenExpiryCalendar
-                    )
-                    .padding(.horizontal, AppSpacing.screenPadding)
-                }
+                // 6. Story bubbles strip
+                InsightStoryStrip(
+                    shoppingCompleted: dashboardVM.shoppingCompleted,
+                    shoppingTotal: dashboardVM.shoppingTotal,
+                    hasBudget: financeVM.hasBudget,
+                    lowStockCount: dashboardVM.lowStockCount,
+                    wasteItemCount: dashboardVM.wasteItemCount,
+                    currentStreak: dashboardVM.currentStreak,
+                    onNavigateToShopping: onNavigateToShopping,
+                    onNavigateToInsights: onNavigateToInsights,
+                    onOpenPantryTab: onOpenPantryTab
+                )
             }
             .padding(.top, AppSpacing.sectionSpacing)
             .padding(.bottom, AppSpacing.rowSpacing)

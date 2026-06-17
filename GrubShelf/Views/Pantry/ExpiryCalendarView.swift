@@ -10,6 +10,7 @@ struct ExpiryCalendarView: View {
     @State private var itemToEdit: PantryItem?
     /// Any date within the visible week; week boundaries come from `dateInterval(of: .weekOfYear, ...)`.
     @State private var weekContainingDate: Date = .now
+    @State private var showMonthView = false
 
     private var calendar: Calendar { Calendar.current }
 
@@ -55,13 +56,48 @@ struct ExpiryCalendarView: View {
         return "\(weekStart.formatted(.dateTime.month(.abbreviated).day())) – \(end.formatted(.dateTime.month(.abbreviated).day().year()))"
     }
 
+    private var monthStart: Date {
+        calendar.dateInterval(of: .month, for: weekContainingDate)?.start ?? weekContainingDate
+    }
+
+    private var daysInMonth: [Date?] {
+        guard let range = calendar.range(of: .day, in: .month, for: monthStart) else { return [] }
+        let firstWeekday = (calendar.component(.weekday, from: monthStart) - calendar.firstWeekday + 7) % 7
+        var days: [Date?] = Array(repeating: nil, count: firstWeekday)
+        for day in range {
+            if let date = calendar.date(byAdding: .day, value: day - 1, to: monthStart) {
+                days.append(date)
+            }
+        }
+        // Pad to complete final week
+        while days.count % 7 != 0 { days.append(nil) }
+        return days
+    }
+
+    private var monthTitle: String {
+        monthStart.formatted(.dateTime.month(.wide).year())
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: AppSpacing.sectionSpacing) {
                 VStack(alignment: .leading, spacing: AppSpacing.microGap) {
                     HStack {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { showMonthView.toggle() }
+                        } label: {
+                            HStack(spacing: AppSpacing.microGap) {
+                                Image(systemName: showMonthView ? "calendar" : "calendar.badge.clock")
+                                    .font(BrandSymbolFont.symbol(14))
+                                Text(showMonthView ? "Week" : "Month")
+                                    .font(BrandFont.semiBold(13))
+                            }
+                            .foregroundStyle(.gsBrandPrimary)
+                        }
+                        .buttonStyle(.plain)
+
                         Spacer()
-                        Text(weekTitle)
+                        Text(showMonthView ? monthTitle : weekTitle)
                             .font(BrandFont.medium(13))
                             .foregroundStyle(.gsTextSecondary)
                         Spacer()
@@ -81,44 +117,10 @@ struct ExpiryCalendarView: View {
                         }
                     }
 
-                    // Single-row week strip
-                    HStack(spacing: AppSpacing.microGap) {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { changeWeek(by: -1) }
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .font(BrandSymbolFont.symbol(16))
-                                .foregroundStyle(.gsTextPrimary)
-                                .frame(width: AppSpacing.chevronTouchWidth, height: AppSpacing.chevronTouchHeight)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Previous week")
-
-                        HStack(spacing: 0) {
-                            ForEach(daysInWeek, id: \.self) { date in
-                                compactWeekDayCell(date)
-                            }
-                        }
-                        .padding(.vertical, AppSpacing.compactGap)
-                        .padding(.horizontal, AppSpacing.microGap)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.gsSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: AppSpacing.badgeCornerRadius, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: AppSpacing.badgeCornerRadius, style: .continuous)
-                                .strokeBorder(Color.gsBorder.opacity(0.45), lineWidth: 0.5)
-                        )
-
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { changeWeek(by: 1) }
-                        } label: {
-                            Image(systemName: "chevron.right")
-                                .font(BrandSymbolFont.symbol(16))
-                                .foregroundStyle(.gsTextPrimary)
-                                .frame(width: AppSpacing.chevronTouchWidth, height: AppSpacing.chevronTouchHeight)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Next week")
+                    if showMonthView {
+                        monthGrid
+                    } else {
+                        weekStrip
                     }
                 }
                 .padding(.horizontal, AppSpacing.screenPadding)
@@ -168,6 +170,145 @@ struct ExpiryCalendarView: View {
 
     private var canEditItems: Bool {
         householdId != nil && userId != nil
+    }
+
+    // MARK: - Week Strip
+
+    private var weekStrip: some View {
+        HStack(spacing: AppSpacing.microGap) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { changeWeek(by: -1) }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(BrandSymbolFont.symbol(16))
+                    .foregroundStyle(.gsTextPrimary)
+                    .frame(width: AppSpacing.chevronTouchWidth, height: AppSpacing.chevronTouchHeight)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Previous week")
+
+            HStack(spacing: 0) {
+                ForEach(daysInWeek, id: \.self) { date in
+                    compactWeekDayCell(date)
+                }
+            }
+            .padding(.vertical, AppSpacing.compactGap)
+            .padding(.horizontal, AppSpacing.microGap)
+            .frame(maxWidth: .infinity)
+            .background(Color.gsSurface)
+            .clipShape(RoundedRectangle(cornerRadius: AppSpacing.badgeCornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: AppSpacing.badgeCornerRadius, style: .continuous)
+                    .strokeBorder(Color.gsBorder.opacity(0.45), lineWidth: 0.5)
+            )
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { changeWeek(by: 1) }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(BrandSymbolFont.symbol(16))
+                    .foregroundStyle(.gsTextPrimary)
+                    .frame(width: AppSpacing.chevronTouchWidth, height: AppSpacing.chevronTouchHeight)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Next week")
+        }
+    }
+
+    // MARK: - Month Grid
+
+    private var monthGrid: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: AppSpacing.microGap) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { changeMonth(by: -1) }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(BrandSymbolFont.symbol(16))
+                        .foregroundStyle(.gsTextPrimary)
+                        .frame(width: AppSpacing.chevronTouchWidth, height: AppSpacing.chevronTouchHeight)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Previous month")
+
+                Spacer()
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { changeMonth(by: 1) }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(BrandSymbolFont.symbol(16))
+                        .foregroundStyle(.gsTextPrimary)
+                        .frame(width: AppSpacing.chevronTouchWidth, height: AppSpacing.chevronTouchHeight)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Next month")
+            }
+
+            // Day-of-week headers
+            HStack(spacing: 0) {
+                ForEach(calendar.veryShortWeekdaySymbols, id: \.self) { symbol in
+                    Text(symbol)
+                        .font(BrandFont.medium(10))
+                        .foregroundStyle(.gsTextSecondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.bottom, AppSpacing.microGap)
+
+            // Calendar grid
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
+            LazyVGrid(columns: columns, spacing: 2) {
+                ForEach(Array(daysInMonth.enumerated()), id: \.offset) { _, date in
+                    if let date {
+                        monthDayCell(date)
+                    } else {
+                        Color.clear.frame(height: 36)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, AppSpacing.compactGap)
+        .padding(.horizontal, AppSpacing.microGap)
+        .background(Color.gsSurface)
+        .clipShape(RoundedRectangle(cornerRadius: AppSpacing.badgeCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppSpacing.badgeCornerRadius, style: .continuous)
+                .strokeBorder(Color.gsBorder.opacity(0.45), lineWidth: 0.5)
+        )
+    }
+
+    private func monthDayCell(_ date: Date) -> some View {
+        let day = calendar.startOfDay(for: date)
+        let isToday = calendar.isDateInToday(date)
+        let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
+        let count = itemsByDate[day]?.count ?? 0
+        let hasExpired = itemsByDate[day]?.contains { ($0.expiryDate ?? .distantFuture) < .now } ?? false
+
+        return Button {
+            selectedDate = date
+            weekContainingDate = date
+        } label: {
+            VStack(spacing: 1) {
+                Text("\(calendar.component(.day, from: date))")
+                    .font(isToday ? BrandFont.bold(13) : BrandFont.regular(13))
+                    .foregroundStyle(
+                        isSelected ? .gsTextInverse :
+                        isToday ? .gsBrandPrimary :
+                        .gsTextPrimary
+                    )
+                Circle()
+                    .fill(dotColor(count: count, hasExpired: hasExpired, isSelected: isSelected))
+                    .frame(width: 5, height: 5)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? Color.gsBrandPrimary : (isToday ? Color.gsBrandPrimary.opacity(0.12) : Color.clear))
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Day Cell
@@ -230,5 +371,11 @@ struct ExpiryCalendarView: View {
         let clamped = min(max(dayOffset, 0), 6)
         weekContainingDate = newStart
         selectedDate = calendar.date(byAdding: .day, value: clamped, to: newStart) ?? newStart
+    }
+
+    private func changeMonth(by delta: Int) {
+        guard let newMonth = calendar.date(byAdding: .month, value: delta, to: monthStart) else { return }
+        weekContainingDate = newMonth
+        selectedDate = newMonth
     }
 }

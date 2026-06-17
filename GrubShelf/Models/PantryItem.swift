@@ -36,8 +36,14 @@ struct PantryItem: Codable, Identifiable, Equatable, Sendable {
     var reminderStatus: ReminderStatus
     var reminderSnoozedUntil: Date?
     var photoPath: String?
+    var approvalStatus: ApprovalStatus
+    var approvedBy: UUID?
+    var approvedAt: Date?
+    var rejectionReason: String?
 
     var id: UUID { itemId }
+
+    var isApproved: Bool { approvalStatus == .approved }
 
     init(
         itemId: UUID,
@@ -58,7 +64,11 @@ struct PantryItem: Codable, Identifiable, Equatable, Sendable {
         expectedUsageCycleDays: Int? = nil,
         reminderStatus: ReminderStatus = .active,
         reminderSnoozedUntil: Date? = nil,
-        photoPath: String? = nil
+        photoPath: String? = nil,
+        approvalStatus: ApprovalStatus = .approved,
+        approvedBy: UUID? = nil,
+        approvedAt: Date? = nil,
+        rejectionReason: String? = nil
     ) {
         self.itemId = itemId
         self.householdId = householdId
@@ -79,6 +89,10 @@ struct PantryItem: Codable, Identifiable, Equatable, Sendable {
         self.reminderStatus = reminderStatus
         self.reminderSnoozedUntil = reminderSnoozedUntil
         self.photoPath = photoPath
+        self.approvalStatus = approvalStatus
+        self.approvedBy = approvedBy
+        self.approvedAt = approvedAt
+        self.rejectionReason = rejectionReason
     }
 
     var state: ItemState {
@@ -121,6 +135,10 @@ struct PantryItem: Codable, Identifiable, Equatable, Sendable {
         case reminderStatus = "reminder_status"
         case reminderSnoozedUntil = "reminder_snoozed_until"
         case photoPath = "photo_path"
+        case approvalStatus = "approval_status"
+        case approvedBy = "approved_by"
+        case approvedAt = "approved_at"
+        case rejectionReason = "rejection_reason"
     }
 
     init(from decoder: Decoder) throws {
@@ -144,6 +162,10 @@ struct PantryItem: Codable, Identifiable, Equatable, Sendable {
         reminderStatus = try c.decodeIfPresent(ReminderStatus.self, forKey: .reminderStatus) ?? .active
         reminderSnoozedUntil = try c.decodeIfPresent(Date.self, forKey: .reminderSnoozedUntil)
         photoPath = try c.decodeIfPresent(String.self, forKey: .photoPath)
+        approvalStatus = try c.decodeIfPresent(ApprovalStatus.self, forKey: .approvalStatus) ?? .approved
+        approvedBy = try c.decodeIfPresent(UUID.self, forKey: .approvedBy)
+        approvedAt = try c.decodeIfPresent(Date.self, forKey: .approvedAt)
+        rejectionReason = try c.decodeIfPresent(String.self, forKey: .rejectionReason)
     }
 }
 
@@ -181,6 +203,22 @@ extension PantryItem {
         case "african staples": return 60
         case "african spices": return 90
         default: return 14
+        }
+    }
+
+    /// How many days before expiry a notification should fire, per category.
+    /// Short-life categories get earlier relative alerts; long-life categories
+    /// produce less noise.
+    static func expiryAlertLeadDays(for category: String) -> Int {
+        switch category.lowercased() {
+        case "seafood": return 2
+        case "meat", "bakery", "vegetables": return 3
+        case "dairy", "fruits": return 4
+        case "snacks", "beverages": return 5
+        case "grains": return 7
+        case "frozen", "african staples": return 7
+        case "condiments", "african spices", "canned": return 7
+        default: return 3
         }
     }
 

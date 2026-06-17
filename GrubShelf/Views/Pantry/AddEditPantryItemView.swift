@@ -4,9 +4,11 @@ struct AddEditPantryItemView: View {
     @State var viewModel: AddEditPantryItemViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteConfirmation = false
+    var onDelete: ((UUID) -> Void)?
 
-    init(viewModel: AddEditPantryItemViewModel) {
+    init(viewModel: AddEditPantryItemViewModel, onDelete: ((UUID) -> Void)? = nil) {
         _viewModel = State(initialValue: viewModel)
+        self.onDelete = onDelete
     }
 
     var body: some View {
@@ -173,7 +175,9 @@ struct AddEditPantryItemView: View {
             .alert("Delete this item?", isPresented: $showDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
                     Task {
+                        let deletedId = viewModel.deletingItemId
                         if await viewModel.delete() {
+                            if let deletedId { onDelete?(deletedId) }
                             dismiss()
                         }
                     }
@@ -189,21 +193,59 @@ struct AddEditPantryItemView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task {
-                            if await viewModel.save() {
-                                dismiss()
+                if !viewModel.isEditing {
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            Button {
+                                Task {
+                                    if await viewModel.save() {
+                                        dismiss()
+                                    }
+                                }
+                            } label: {
+                                Label("Save", systemImage: "checkmark")
+                            }
+                            Button {
+                                Task {
+                                    if await viewModel.save() {
+                                        viewModel.resetForAnotherItem()
+                                    }
+                                }
+                            } label: {
+                                Label("Save & add another", systemImage: "plus.circle")
+                            }
+                        } label: {
+                            if viewModel.isLoading {
+                                ProgressView()
+                            } else {
+                                Text("Save")
+                            }
+                        } primaryAction: {
+                            Task {
+                                if await viewModel.save() {
+                                    dismiss()
+                                }
                             }
                         }
-                    } label: {
-                        if viewModel.isLoading {
-                            ProgressView()
-                        } else {
-                            Text("Save")
-                        }
+                        .disabled(viewModel.isLoading || viewModel.isRecognizingFromPhoto)
                     }
-                    .disabled(viewModel.isLoading || viewModel.isRecognizingFromPhoto)
+                } else {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            Task {
+                                if await viewModel.save() {
+                                    dismiss()
+                                }
+                            }
+                        } label: {
+                            if viewModel.isLoading {
+                                ProgressView()
+                            } else {
+                                Text("Save")
+                            }
+                        }
+                        .disabled(viewModel.isLoading || viewModel.isRecognizingFromPhoto)
+                    }
                 }
             }
         }

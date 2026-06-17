@@ -10,6 +10,33 @@ enum PantrySupabaseWriteSupport {
         return pg.message.localizedCaseInsensitiveContains("storage_location")
     }
 
+    static func isMissingApprovalColumnError(_ error: Error) -> Bool {
+        guard let pg = error as? PostgrestError else { return false }
+        guard pg.code == "PGRST204" else { return false }
+        let message = pg.message.lowercased()
+        return message.contains("approval_status")
+            || message.contains("approved_by")
+            || message.contains("approved_at")
+            || message.contains("rejection_reason")
+    }
+
+    static func withoutApprovalFields(_ row: JSONObject) -> JSONObject {
+        var copy = row
+        copy.removeValue(forKey: "approval_status")
+        copy.removeValue(forKey: "approved_by")
+        copy.removeValue(forKey: "approved_at")
+        copy.removeValue(forKey: "rejection_reason")
+        return copy
+    }
+
+    static func pantryInsertRow(_ item: PantryItem, includeStorageLocation: Bool, includeApprovalFields: Bool) throws -> JSONObject {
+        var obj = try pantryInsertRow(item, includeStorageLocation: includeStorageLocation)
+        if !includeApprovalFields {
+            obj = withoutApprovalFields(obj)
+        }
+        return obj
+    }
+
     static func jsonObject(from encodable: some Encodable) throws -> JSONObject {
         let encoder = PostgrestClient.Configuration.jsonEncoder
         let decoder = PostgrestClient.Configuration.jsonDecoder
@@ -106,10 +133,13 @@ final class SupabasePantryRepository: PantryRepository {
 
     func add(_ item: PantryItem) async throws -> PantryItem {
         do {
-            return try await insertPantryItem(item, includeStorageLocation: true)
+            return try await insertPantryItem(item, includeStorageLocation: true, includeApprovalFields: true)
         } catch {
             if PantrySupabaseWriteSupport.isMissingStorageLocationColumnError(error) {
-                return try await insertPantryItem(item, includeStorageLocation: false)
+                return try await insertPantryItem(item, includeStorageLocation: false, includeApprovalFields: true)
+            }
+            if PantrySupabaseWriteSupport.isMissingApprovalColumnError(error) {
+                return try await insertPantryItem(item, includeStorageLocation: true, includeApprovalFields: false)
             }
             throw error
         }
@@ -126,8 +156,12 @@ final class SupabasePantryRepository: PantryRepository {
         }
     }
 
-    private func insertPantryItem(_ item: PantryItem, includeStorageLocation: Bool) async throws -> PantryItem {
-        if includeStorageLocation {
+    private func insertPantryItem(
+        _ item: PantryItem,
+        includeStorageLocation: Bool,
+        includeApprovalFields: Bool
+    ) async throws -> PantryItem {
+        if includeStorageLocation && includeApprovalFields {
             return try await withRetry { [client] in
                 try await client.from("pantry_items")
                     .insert(item)
@@ -137,7 +171,11 @@ final class SupabasePantryRepository: PantryRepository {
                     .value
             }
         }
-        let row = try PantrySupabaseWriteSupport.pantryInsertRow(item, includeStorageLocation: false)
+        let row = try PantrySupabaseWriteSupport.pantryInsertRow(
+            item,
+            includeStorageLocation: includeStorageLocation,
+            includeApprovalFields: includeApprovalFields
+        )
         return try await withRetry { [client] in
             try await client.from("pantry_items")
                 .insert(row)
@@ -184,40 +222,15 @@ final class SupabasePantryRepository: PantryRepository {
     }
 
     func observeChanges(householdId: UUID) -> AsyncStream<[PantryItem]> {
-        AsyncStream { continuation in
-            let channel = client.realtimeV2.channel("pantry_\(householdId.uuidString)")
-
-            let task = Task {
-                let changes = channel.postgresChange(
-                    AnyAction.self,
-                    schema: "public",
-                    table: "pantry_items",
-                    filter: .eq("household_id", value: householdId)
-                )
-
-                try? await channel.subscribeWithError()
-
-                var debounceTask: Task<Void, Never>?
-                for await _ in changes {
-                    debounceTask?.cancel()
-                    debounceTask = Task {
-                        try? await Task.sleep(for: .milliseconds(300))
-                        guard !Task.isCancelled else { return }
-                        do {
-                            let items = try await self.fetchAll(householdId: householdId)
-                            continuation.yield(items)
-                        } catch {
-                            Logger(subsystem: "com.grubshelf", category: "Pantry")
-                                .error("Failed to fetch pantry items: \(error.localizedDescription)")
-                        }
-                    }
-                }
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-                Task { await channel.unsubscribe() }
-            }
+        observeWithDebounce(
+            client: client,
+            channelName: "pantry_\(householdId.uuidString)",
+            table: "pantry_items",
+            filterColumn: "household_id",
+            filterValue: householdId,
+            logCategory: "Pantry"
+        ) { [self] in
+            try await fetchAll(householdId: householdId)
         }
     }
 }

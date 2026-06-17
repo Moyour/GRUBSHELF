@@ -216,7 +216,12 @@ struct PantryViewModelTests {
         let repo = MockPantryRepository()
         let item = makeItem(name: "Milk")
         repo.items = [item]
-        let vm = PantryViewModel(repository: repo, householdId: householdId, userId: userId)
+        let vm = PantryViewModel(
+            repository: repo,
+            householdId: householdId,
+            userId: userId,
+            userRole: .admin
+        )
         await vm.loadItems()
         #expect(vm.items.first?.quantity == 10)
         await vm.incrementItem(item)
@@ -233,12 +238,13 @@ struct PantryViewModelTests {
             repository: repo,
             householdId: householdId,
             userId: userId,
+            userRole: .admin,
             wasteEventRepository: wasteRepo,
             financeSettingsRepository: financeRepo
         )
 
         await vm.loadItems()
-        vm.markFinished(item)
+        await vm.markFinished(item)
         await vm.confirmRemoveFromList()
 
         #expect(vm.items.isEmpty)
@@ -255,13 +261,13 @@ struct PantryViewModelTests {
             repository: repo,
             householdId: householdId,
             userId: userId,
+            userRole: .admin,
             wasteEventRepository: wasteRepo,
             financeSettingsRepository: financeRepo
         )
 
         await vm.loadItems()
-        vm.markFinished(item)
-        vm.beginExpiredRemoval()
+        vm.beginExpiredRemoval(for: item)
         await vm.saveWasteEvent(skipCost: true)
 
         #expect(wasteRepo.events.count == 1)
@@ -278,13 +284,13 @@ struct PantryViewModelTests {
             repository: repo,
             householdId: householdId,
             userId: userId,
+            userRole: .admin,
             wasteEventRepository: wasteRepo,
             financeSettingsRepository: financeRepo
         )
 
         await vm.loadItems()
-        vm.markFinished(item)
-        vm.beginWasteRemoval()
+        vm.beginWasteRemoval(for: item)
         await vm.saveWasteEvent(skipCost: true)
 
         #expect(wasteRepo.events.count == 1)
@@ -323,13 +329,15 @@ struct AddEditPantryItemViewModelMergeTests {
         }
     }
 
-    @Test func saveMergesWhenMatchingNameUnitNoExpiry() async {
+    // Auto-merging was removed — duplicate names always create a new row.
+    @Test func saveCreatesNewItemEvenWhenMatchingNameUnitNoExpiry() async {
         let repo = MockPantryRepository()
         repo.items = [makePantryItem(name: "Rice", quantity: 2, unit: .pcs)]
         let vm = AddEditPantryItemViewModel(
             repository: repo,
             householdId: householdId,
-            userId: userId
+            userId: userId,
+            userRole: .admin
         )
         vm.name = "Rice"
         vm.quantity = "1"
@@ -338,8 +346,37 @@ struct AddEditPantryItemViewModelMergeTests {
 
         let result = await vm.save()
         #expect(result == true)
-        #expect(repo.items.count == 1)
-        #expect(repo.items.first?.quantity == 3)
+        #expect(repo.items.count == 2)
+        #expect(repo.addCallCount == 1)
+    }
+
+    // Members lack RLS UPDATE permission on approved pantry rows, so adding a
+    // duplicate must create a new pending row instead of attempting a merge
+    // (which would surface as PGRST116 from PostgREST and toast "Failed to add").
+    @Test func memberSaveCreatesNewPendingItemInsteadOfMergingApproved() async {
+        let repo = MockPantryRepository()
+        let existing = makePantryItem(name: "Rice", quantity: 2, unit: .pcs)
+        repo.items = [existing]
+        let vm = AddEditPantryItemViewModel(
+            repository: repo,
+            householdId: householdId,
+            userId: userId,
+            userRole: .member
+        )
+        vm.name = "Rice"
+        vm.quantity = "1"
+        vm.selectedUnit = .pcs
+        vm.hasExpiry = false
+
+        let result = await vm.save()
+
+        #expect(result == true)
+        #expect(repo.items.count == 2)
+        #expect(repo.updateCallCount == 0)
+        #expect(repo.addCallCount == 1)
+        let pending = repo.items.first { $0.itemId != existing.itemId }
+        #expect(pending?.approvalStatus == .pending)
+        #expect(pending?.quantity == 1)
     }
 
     @Test func saveCreatesNewWhenDifferentUnit() async {
@@ -430,7 +467,8 @@ struct AddEditPantryItemViewModelMergeTests {
         #expect(photoStorage.uploadedPaths.count == 1)
     }
 
-    @Test func saveMergesAndWritesPhotoPathWhenMatchExists() async {
+    // Auto-merging was removed — duplicate names create a new row with the photo.
+    @Test func saveCreatesNewItemWithPhotoEvenWhenMatchExists() async {
         let repo = MockPantryRepository()
         repo.items = [makePantryItem(name: "Rice", quantity: 2, unit: .pcs)]
         let photoStorage = MockPantryPhotoStorage()
@@ -438,6 +476,7 @@ struct AddEditPantryItemViewModelMergeTests {
             repository: repo,
             householdId: householdId,
             userId: userId,
+            userRole: .admin,
             photoStorage: photoStorage
         )
         vm.name = "Rice"
@@ -449,9 +488,10 @@ struct AddEditPantryItemViewModelMergeTests {
         let result = await vm.save()
 
         #expect(result == true)
-        #expect(repo.items.count == 1)
-        #expect(repo.items.first?.quantity == 3)
-        #expect(repo.items.first?.photoPath != nil)
+        #expect(repo.items.count == 2)
+        let newItem = repo.items.last
+        #expect(newItem?.quantity == 1)
+        #expect(newItem?.photoPath != nil)
         #expect(photoStorage.uploadedPaths.count == 1)
     }
 

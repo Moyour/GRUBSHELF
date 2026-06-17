@@ -22,6 +22,33 @@ struct ShoppingListWidgetSnapshot: Codable, Equatable, Sendable {
 struct ShoppingListWidgetPendingLine: Codable, Equatable, Hashable, Sendable {
     let itemId: UUID?
     let title: String
+    let quantity: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case itemId
+        case title
+        case quantity
+    }
+
+    init(itemId: UUID?, title: String, quantity: Double? = nil) {
+        self.itemId = itemId
+        self.title = title
+        self.quantity = quantity
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        itemId = try container.decodeIfPresent(UUID.self, forKey: .itemId)
+        title = try container.decode(String.self, forKey: .title)
+        quantity = try container.decodeIfPresent(Double.self, forKey: .quantity)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(itemId, forKey: .itemId)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(quantity, forKey: .quantity)
+    }
 }
 
 struct ShoppingListWidgetListPayload: Equatable, Sendable, Identifiable {
@@ -62,7 +89,7 @@ struct ShoppingListWidgetListPayload: Equatable, Sendable, Identifiable {
         if let samples = try c.decodeIfPresent([ShoppingListWidgetPendingLine].self, forKey: .pendingSamples) {
             pendingSamples = samples
         } else if let titles = try c.decodeIfPresent([String].self, forKey: .pendingSampleTitles) {
-            pendingSamples = titles.map { ShoppingListWidgetPendingLine(itemId: nil, title: $0) }
+            pendingSamples = titles.map { ShoppingListWidgetPendingLine(itemId: nil, title: $0, quantity: nil) }
         } else {
             pendingSamples = []
         }

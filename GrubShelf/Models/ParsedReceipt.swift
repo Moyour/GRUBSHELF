@@ -6,12 +6,15 @@ struct ParsedReceiptItem: Identifiable, Equatable {
     var name: String
     var quantity: Double?
     var priceMinor: Int?
+    /// When true, this item will also be added to the pantry on purchase log.
+    var addToPantry: Bool
 
-    init(id: UUID = UUID(), name: String, quantity: Double? = nil, priceMinor: Int? = nil) {
+    init(id: UUID = UUID(), name: String, quantity: Double? = nil, priceMinor: Int? = nil, addToPantry: Bool = true) {
         self.id = id
         self.name = name
         self.quantity = quantity
         self.priceMinor = priceMinor
+        self.addToPantry = addToPantry
     }
 }
 

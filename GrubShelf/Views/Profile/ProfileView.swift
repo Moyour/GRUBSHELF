@@ -1,8 +1,5 @@
+import StoreKit
 import SwiftUI
-
-private enum ExportFormat {
-    case json, csv
-}
 
 struct ProfileView: View {
     @State var viewModel: ProfileViewModel
@@ -11,13 +8,16 @@ struct ProfileView: View {
     @State private var isExporting = false
     @State private var exportFileURL: URL?
     @State private var showExportSheet = false
+    @Environment(\.featureGateService) private var featureGateService
+    @Environment(\.subscriptionService) private var subscriptionService
 
     init(viewModel: ProfileViewModel) {
         _viewModel = State(initialValue: viewModel)
     }
 
     var body: some View {
-        NavigationStack {
+        ZStack {
+            NavigationStack {
             Form {
                 // User Info
                 Section("Account") {
@@ -33,14 +33,9 @@ struct ProfileView: View {
                             }
                             .accessibilityHidden(true)
 
-                            VStack(alignment: .leading, spacing: AppSpacing.microGap) {
-                                Text(user.name)
-                                    .font(BrandFont.semiBold(17))
-                                    .foregroundStyle(.gsTextPrimary)
-                                Text(user.email)
-                                    .font(BrandFont.regular(14))
-                                    .foregroundStyle(.gsTextSecondary)
-                            }
+                            Text(user.name)
+                                .font(BrandFont.semiBold(17))
+                                .foregroundStyle(.gsTextPrimary)
 
                             Spacer()
 
@@ -69,7 +64,99 @@ struct ProfileView: View {
                     }
                 }
 
-                // Settings (opens app settings sheet)
+                // Family Members
+                Section("Family") {
+                    if viewModel.members.isEmpty && !viewModel.isLoading {
+                        Text("No family members yet. Go to 'All members & invites' to invite someone.")
+                            .font(BrandFont.regular(15))
+                            .foregroundStyle(.gsTextSecondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, AppSpacing.smallSpacing)
+                    } else {
+                        // Show all members ordered: owner → other admins → members (alphabetical within each tier)
+                        ForEach(
+                            Array(
+                                viewModel.members
+                                    .sorted(by: AppUser.householdOrder)
+                                    .prefix(3)
+                            )
+                        ) { member in
+                            HStack {
+                                Text(member.name)
+                                    .font(BrandFont.semiBold(17))
+                                    .foregroundStyle(.gsTextPrimary)
+                                Spacer()
+                                Text(MemberRoleLabel.display(for: member))
+                                    .font(BrandFont.medium(13))
+                                    .foregroundStyle(
+                                        member.isOwner || member.role == .admin
+                                            ? .gsBrandPrimary
+                                            : .gsTextSecondary
+                                    )
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("\(member.name), \(MemberRoleLabel.display(for: member))")
+                        }
+                    }
+
+                    ForEach(
+                        viewModel.pendingInvites
+                            .sorted { $0.createdAt > $1.createdAt }
+                    ) { invite in
+                        HStack(spacing: AppSpacing.smallSpacing) {
+                            Text(invite.invitedEmail)
+                                .font(BrandFont.medium(15))
+                                .foregroundStyle(.gsTextPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: AppSpacing.smallSpacing)
+                            Text(invite.isExpired ? "Expired" : "Pending")
+                                .font(BrandFont.medium(13))
+                                .foregroundStyle(invite.isExpired ? .gsWarning : .gsTextSecondary)
+                        }
+                        .accessibilityLabel("\(invite.invitedEmail), \(invite.isExpired ? "expired invite" : "pending invite")")
+                    }
+
+                    NavigationLink {
+                        FamilyMembersView(
+                            members: viewModel.members,
+                            pendingInvites: viewModel.pendingInvites,
+                            currentUserRole: viewModel.currentUser?.role ?? .member,
+                            currentUserIsOwner: viewModel.currentUser?.isOwner ?? false,
+                            onToggleRole: { member in Task { await viewModel.toggleRole(member) } },
+                            onRemove: { member in Task { await viewModel.removeMember(member) } },
+                            onCancelInvite: { invite in Task { await viewModel.cancelInvite(invite) } },
+                            onInviteTapped: {
+                                if viewModel.canInviteMembers {
+                                    viewModel.showInviteSheet = true
+                                }
+                            },
+                            onRefresh: { await viewModel.loadData(forceRefresh: true) }
+                        )
+                    } label: {
+                        HStack {
+                            Label {
+                                Text("All members & invites")
+                                    .font(BrandFont.regular(17))
+                                    .foregroundStyle(.gsTextPrimary)
+                            } icon: {
+                                Image(systemName: "person.2.fill")
+                                    .font(BrandSymbolFont.symbol(17))
+                                    .foregroundStyle(.gsBrandPrimary)
+                            }
+                            Spacer()
+                            Text("\(viewModel.members.count) joined")
+                                .font(BrandFont.regular(14))
+                                .foregroundStyle(.gsTextSecondary)
+                            if !viewModel.pendingInvites.isEmpty {
+                                Text("· \(viewModel.pendingInvites.count) pending")
+                                    .font(BrandFont.regular(14))
+                                    .foregroundStyle(.gsBrandPrimary)
+                            }
+                        }
+                    }
+                }
+
                 Section {
                     Button {
                         showSettings = true
@@ -99,38 +186,65 @@ struct ProfileView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                } header: {
+                    Text("Settings")
                 }
 
-                // Family Members
-                Section("Family") {
-                    NavigationLink {
-                        FamilyMembersView(
-                            members: viewModel.members,
-                            pendingInvites: viewModel.pendingInvites,
-                            currentUserRole: viewModel.currentUser?.role ?? .member,
-                            onToggleRole: { member in Task { await viewModel.toggleRole(member) } },
-                            onRemove: { member in Task { await viewModel.removeMember(member) } },
-                            onCancelInvite: { invite in Task { await viewModel.cancelInvite(invite) } },
-                            onInviteTapped: { viewModel.showInviteSheet = true },
-                            onRefresh: { await viewModel.loadData(forceRefresh: true) }
-                        )
-                    } label: {
+                // Subscription
+                Section("Subscription") {
+                    if subscriptionService?.isPremium == true {
                         HStack {
                             Label {
-                                Text("\(viewModel.members.count) members")
-                                    .font(BrandFont.regular(17))
+                                Text("Premium")
+                                    .font(BrandFont.semiBold(17))
                                     .foregroundStyle(.gsTextPrimary)
                             } icon: {
-                                Image(systemName: "person.2.fill")
+                                Image(systemName: "star.fill")
                                     .font(BrandSymbolFont.symbol(17))
                                     .foregroundStyle(.gsBrandPrimary)
                             }
-                            if !viewModel.pendingInvites.isEmpty {
-                                Spacer()
-                                Text("\(viewModel.pendingInvites.count) pending")
-                                    .font(BrandFont.regular(14))
+                            Spacer()
+                            Text("Active")
+                                .font(BrandFont.medium(13))
+                                .foregroundStyle(.gsSuccess)
+                        }
+                        Button {
+                            Task {
+                                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                                    try? await AppStore.showManageSubscriptions(in: windowScene)
+                                }
+                            }
+                        } label: {
+                            Label {
+                                Text("Manage Subscription")
+                                    .font(BrandFont.regular(17))
+                                    .foregroundStyle(.gsTextPrimary)
+                            } icon: {
+                                Image(systemName: "gearshape")
+                                    .font(BrandSymbolFont.symbol(17))
                                     .foregroundStyle(.gsBrandPrimary)
                             }
+                        }
+                    } else {
+                        HStack {
+                            Label {
+                                Text("Free")
+                                    .font(BrandFont.semiBold(17))
+                                    .foregroundStyle(.gsTextPrimary)
+                            } icon: {
+                                Image(systemName: "gift")
+                                    .font(BrandSymbolFont.symbol(17))
+                                    .foregroundStyle(.gsTextSecondary)
+                            }
+                            Spacer()
+                            Button {
+                                featureGateService?.showPaywall = true
+                            } label: {
+                                Text("Upgrade")
+                                    .font(BrandFont.semiBold(14))
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.gsBrandPrimary)
                         }
                     }
                 }
@@ -138,6 +252,7 @@ struct ProfileView: View {
                 // Data Export
                 Section("Data") {
                     Button {
+                        guard featureGateService?.requireFeature(.exportReports) != false else { return }
                         Task { await exportData(format: .json) }
                     } label: {
                         Label {
@@ -152,6 +267,7 @@ struct ProfileView: View {
                     }
 
                     Button {
+                        guard featureGateService?.requireFeature(.exportReports) != false else { return }
                         Task { await exportData(format: .csv) }
                     } label: {
                         Label {
@@ -190,12 +306,26 @@ struct ProfileView: View {
             .background(.gsBackground)
             .navigationTitle("Profile")
             .task { await viewModel.loadData() }
+            .refreshable {
+                await viewModel.loadData(forceRefresh: true)
+            }
+            .overlay {
+                if viewModel.isLoading && viewModel.members.isEmpty {
+                    ProgressView("Loading...")
+                        .tint(.gsBrandPrimary)
+                        .foregroundStyle(.gsTextPrimary)
+                        .padding(AppSpacing.cardPadding)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AppSpacing.buttonRadius))
+                }
+            }
             .sheet(isPresented: $showSettings) {
                 SettingsView(householdId: viewModel.currentUser?.householdId, profileVM: viewModel)
             }
             .sheet(isPresented: $viewModel.showInviteSheet) {
-                InviteMemberSheet { email in
-                    Task { await viewModel.inviteMember(email: email) }
+                if viewModel.canInviteMembers {
+                    InviteMemberSheet { email in
+                        await viewModel.inviteMember(email: email)
+                    }
                 }
             }
             .sheet(isPresented: $viewModel.showEditProfile) {
@@ -208,6 +338,9 @@ struct ProfileView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This cannot be undone. All your data will be permanently deleted.")
+            }
+            .sheet(item: $viewModel.pendingShareInvite) { invite in
+                InviteShareSheet(activityItems: viewModel.inviteShareItems(for: invite))
             }
             .sheet(isPresented: $showExportSheet) {
                 if let url = exportFileURL {
@@ -225,6 +358,8 @@ struct ProfileView: View {
             }
             .tint(.gsBrandPrimary)
         }
+        }
+        .toastOverlay()
     }
 
     private func exportData(format: ExportFormat) async {
@@ -233,46 +368,21 @@ struct ProfileView: View {
         defer { isExporting = false }
 
         do {
-            let pantryRepo = SupabasePantryRepository()
-            let shoppingRepo = SupabaseShoppingRepository()
-            let shoppingListRepo = SupabaseShoppingListRepository()
-            let wasteRepo = SupabaseWasteEventRepository()
+            exportFileURL = try await DataExportService.exportToFile(format: format, householdId: householdId)
+            showExportSheet = true
 
-            async let pantryFetch = pantryRepo.fetchAll(householdId: householdId)
-            async let shoppingFetch = shoppingRepo.fetchAll(householdId: householdId)
-            async let listsFetch = shoppingListRepo.fetchAll(householdId: householdId)
-            async let wasteFetch = wasteRepo.fetchByDateRange(householdId: householdId, start: .distantPast, end: .now)
-
-            let (pantryItems, shoppingItems, shoppingLists, wasteEvents) = try await (pantryFetch, shoppingFetch, listsFetch, wasteFetch)
-
-            let tempDir = FileManager.default.temporaryDirectory
-
-            switch format {
-            case .json:
-                let data = try DataExportService.exportJSON(
-                    pantryItems: pantryItems,
-                    shoppingLists: shoppingLists,
-                    shoppingItems: shoppingItems,
-                    wasteEvents: wasteEvents
-                )
-                let fileURL = tempDir.appendingPathComponent("Grub-Shelf-Export.json")
-                try data.write(to: fileURL)
-                exportFileURL = fileURL
-                showExportSheet = true
-
-            case .csv:
-                let csv = DataExportService.exportCSV(
-                    pantryItems: pantryItems,
-                    shoppingItems: shoppingItems,
-                    wasteEvents: wasteEvents
-                )
-                let fileURL = tempDir.appendingPathComponent("Grub-Shelf-Export.csv")
-                try csv.write(to: fileURL, atomically: true, encoding: .utf8)
-                exportFileURL = fileURL
-                showExportSheet = true
-            }
+            // Audit log (best-effort)
+            _ = try? await SupabaseManager.shared.client.rpc("log_audit_event", params: [
+                "p_action": "data_export",
+                "p_target_entity": "household",
+                "p_target_id": householdId.uuidString,
+                "p_metadata": "{\"format\": \"\(format.rawValue)\"}",
+            ]).execute()
         } catch {
-            ToastManager.shared.show("Export failed: \(error.localizedDescription)", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "export data"),
+                style: .error
+            )
         }
     }
 }

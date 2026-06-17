@@ -14,16 +14,10 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CFBundleDisplayName</key>
+	<string>GrubShelf</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>NSCameraUsageDescription</key>
-	<string>GrubShelf uses the camera to identify products you add to your pantry.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>GrubShelf may save processed pantry photos to your library when you choose to keep them.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>GrubShelf uses your photo library so you can select product images for pantry item recognition.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -34,7 +28,34 @@
 				<string>grubshelf</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.google.signin</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.313042839436-tp2chd8q21dv9ics36i5fpff58d4floc</string>
+			</array>
+		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.grubshelf.notifications.refresh</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>GrubShelf uses the camera to identify products you add to your pantry.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>GrubShelf may save processed pantry photos to your library when you choose to keep them.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>GrubShelf uses your photo library so you can select product images for pantry item recognition.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Inter-Variable.ttf</string>

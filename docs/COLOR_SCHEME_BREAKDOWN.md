@@ -36,7 +36,7 @@ Every color used in the app, with exact locations and roles.
 | `Color.gray.opacity(0.3)` | EmailAuthView password strength bar (weak segments) |
 | `Color.clear` | Spacer frames; calendar empty day dot; CreateShoppingListSheet listRowBackground |
 | `.regularMaterial` | ProfileView settings button; glass toolbar buttons |
-| `.ultraThinMaterial` | DashboardGlassLayout glass cards; ToastView background |
+| `.ultraThinMaterial` | ToastView background |
 | `UIColor.black` | BarcodeScannerView `view.backgroundColor` |
 | `UIColor.white` | BarcodeScannerView labels, border (`cgColor`) |
 
@@ -48,7 +48,7 @@ Every color used in the app, with exact locations and roles.
 |----------|-------|
 | `DesignSystem/Shadow.swift` – cardShadow | `.black.opacity(0.08)` |
 | `DesignSystem/Shadow.swift` – pillShadow | `.black.opacity(0.06)` |
-| `DashboardGlassLayout` – glassCard | `.black.opacity(0.06)`, `Color.white.opacity(0.18)` (stroke) |
+
 | `ToastView` | `.black.opacity(0.12)` |
 
 ---
@@ -137,18 +137,7 @@ Every color used in the app, with exact locations and roles.
 - `Color.errorRed` — Budget card (over)
 - `Color.primaryGreen` — Activity card, Needs Review CTA
 
-**DashboardGlassLayout.swift**
-- `.ultraThinMaterial` — Glass card background
-- `Color.white.opacity(0.18)` — Glass card stroke
-- `.black.opacity(0.06)` — Glass card shadow
-- `Color.primaryGreen` — Health ring, streak, legend, quick actions, activity
-- `Color.insightsPurple` — Budget ring, legend
-- `Color.successGreen` / `Color.errorRed` — Waste legend
-- `Color.warningAmber` — Expiring, Low Stock accent cards
-- `Color.shoppingBlue` — To Buy accent card
-- `Color.pantryTeal` — Pantry snapshot
-- `Color.shoppingBlue` — Shopping snapshot
-- `Color.warningAmber` — Review card
+*(DashboardGlassLayout.swift removed — was an unused layout experiment)*
 - `Color.primaryText` / `Color.secondaryText` — Labels
 - `Color.errorRed` — Waste total, activity
 - `Color.successGreen` — Zero waste text
@@ -425,7 +414,7 @@ Every color used in the app, with exact locations and roles.
 2. **Colors.swift** — pantryTeal, shoppingBlue, insightsPurple (RGB)
 3. **System colors** — `.white`, `.black`; decide if barcode scanner stays black
 4. **Gray** — SkeletonView, EmailAuthView password bar
-5. **Shadows** — Shadow.swift, DashboardGlassLayout, ToastView
+5. **Shadows** — Shadow.swift, ToastView
 6. **Materials** — Keep or adjust .ultraThinMaterial, .regularMaterial
 7. **ToastView** — success uses primaryGreen; error/warning use secondaryText (consider errorRed for error)
 8. **AccentColor** — Match new primary

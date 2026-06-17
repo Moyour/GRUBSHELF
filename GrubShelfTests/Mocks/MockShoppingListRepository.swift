@@ -4,6 +4,15 @@ import Foundation
 final class MockShoppingListRepository: ShoppingListRepository, @unchecked Sendable {
     var lists: [ShoppingList] = []
     var shouldThrow = false
+    /// Optional suspension before returning, enabling in-flight concurrency tests.
+    var operationDelay: Duration?
+
+    private(set) var addCallCount = 0
+    private(set) var deleteCallCount = 0
+
+    private func applySuspension() async throws {
+        if let d = operationDelay { try await Task.sleep(for: d) }
+    }
 
     func fetchAll(householdId: UUID) async throws -> [ShoppingList] {
         if shouldThrow { throw NSError(domain: "test", code: 1) }
@@ -12,6 +21,8 @@ final class MockShoppingListRepository: ShoppingListRepository, @unchecked Senda
 
     func add(_ list: ShoppingList) async throws -> ShoppingList {
         if shouldThrow { throw NSError(domain: "test", code: 1) }
+        try await applySuspension()
+        addCallCount += 1
         lists.append(list)
         return list
     }
@@ -26,6 +37,8 @@ final class MockShoppingListRepository: ShoppingListRepository, @unchecked Senda
 
     func delete(listId: UUID) async throws {
         if shouldThrow { throw NSError(domain: "test", code: 1) }
+        try await applySuspension()
+        deleteCallCount += 1
         lists.removeAll { $0.listId == listId }
     }
 

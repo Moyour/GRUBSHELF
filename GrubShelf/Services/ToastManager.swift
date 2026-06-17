@@ -21,7 +21,7 @@ final class ToastManager {
     private(set) var current: ToastMessage?
     private var dismissTask: Task<Void, Never>?
 
-    func show(_ text: String, style: ToastMessage.Style = .success, duration: TimeInterval = 2.5) {
+    func show(_ text: String, style: ToastMessage.Style = .success, duration: TimeInterval = 4) {
         dismissTask?.cancel()
         current = ToastMessage(text: text, style: style)
 

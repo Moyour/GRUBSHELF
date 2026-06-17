@@ -2,15 +2,27 @@ import Foundation
 import os
 
 /// Client-side rate limiter using a sliding window of timestamps.
+/// Persists timestamps to UserDefaults so limits survive app restarts.
 actor RateLimiter {
     private let maxAttempts: Int
     private let windowDuration: TimeInterval
     private var timestamps: [Date] = []
+    private let persistenceKey: String?
     private static let logger = Logger(subsystem: "com.grubshelf", category: "RateLimiter")
 
-    init(maxAttempts: Int, window: TimeInterval) {
+    init(maxAttempts: Int, window: TimeInterval, persistenceKey: String? = nil) {
         self.maxAttempts = maxAttempts
         self.windowDuration = window
+        self.persistenceKey = persistenceKey
+
+        if let key = persistenceKey,
+           let stored = UserDefaults.standard.array(forKey: key) as? [Double] {
+            let now = Date()
+            let windowStart = now.addingTimeInterval(-window)
+            self.timestamps = stored
+                .map { Date(timeIntervalSince1970: $0) }
+                .filter { $0 >= windowStart }
+        }
     }
 
     /// Call before each protected operation. Throws `RateLimitError` if the limit is exceeded.
@@ -30,6 +42,13 @@ actor RateLimiter {
         }
 
         timestamps.append(now)
+        persist()
+    }
+
+    private func persist() {
+        guard let key = persistenceKey else { return }
+        let intervals = timestamps.map { $0.timeIntervalSince1970 }
+        UserDefaults.standard.set(intervals, forKey: key)
     }
 }
 

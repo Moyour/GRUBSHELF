@@ -1,0 +1,2 @@
+-- Optional local seed data. Production data is not seeded from this repo.
+-- Add dev-only fixtures here if needed for `supabase db reset`.

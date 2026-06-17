@@ -13,9 +13,9 @@ final class TransferViewModel {
     var didPrefillTripTotal = false
 
     var canTransfer: Bool {
-        guard let amount = Double(tripTotalCost.trimmingCharacters(in: .whitespaces)), amount > 0 else {
-            return false
-        }
+        let trimmed = tripTotalCost.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return true }
+        guard let amount = Double(trimmed), amount > 0 else { return false }
         return true
     }
 
@@ -146,6 +146,7 @@ final class TransferViewModel {
             await logShoppingTrip()
 
             EngagementStore.shared.recordShoppingAction()
+            BetaTelemetryService.shared.logFirstTransfer()
             ToastManager.shared.show(
                 "\(total) item\(total == 1 ? "" : "s") moved to pantry",
                 style: .success
@@ -153,7 +154,6 @@ final class TransferViewModel {
             isLoading = false
             return true
         } else {
-            let failedCount = failedItems.count
             let successCount = completed
 
             // Create detailed error message with item names

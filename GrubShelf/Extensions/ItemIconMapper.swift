@@ -13,7 +13,7 @@ enum ItemIconMapper {
 
         if let exact = itemEmoji[key] { return exact }
 
-        for (keyword, icon) in keywordEmoji where key.contains(keyword) {
+        for (keyword, icon) in keywordEmoji where containsWholeWord(key, word: keyword) {
             return icon
         }
 
@@ -721,6 +721,20 @@ enum ItemIconMapper {
         "tissues":              "🧻",
     ]
     // swiftlint:enable function_body_length
+
+    /// Matches a keyword only on word boundaries (so "water" does not match inside "watermelon").
+    private static func containsWholeWord(_ text: String, word: String) -> Bool {
+        guard !word.isEmpty else { return false }
+        var start = text.startIndex
+        while start < text.endIndex {
+            guard let range = text.range(of: word, range: start..<text.endIndex) else { return false }
+            let beforeOk = range.lowerBound == text.startIndex || !text[text.index(before: range.lowerBound)].isLetter
+            let afterOk = range.upperBound == text.endIndex || !text[range.upperBound].isLetter
+            if beforeOk && afterOk { return true }
+            start = range.upperBound
+        }
+        return false
+    }
 
     // MARK: - Keyword Fallback (order matters — more specific first)
 

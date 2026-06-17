@@ -1,6 +1,50 @@
 import Foundation
 
+enum ExportFormat: String {
+    case json, csv
+}
+
 struct DataExportService {
+
+    // MARK: - Unified export-to-file
+
+    /// Fetches all household data, writes to a temp file, and returns the URL.
+    static func exportToFile(format: ExportFormat, householdId: UUID) async throws -> URL {
+        let pantryRepo = SupabasePantryRepository()
+        let shoppingRepo = SupabaseShoppingRepository()
+        let shoppingListRepo = SupabaseShoppingListRepository()
+        let wasteRepo = SupabaseWasteEventRepository()
+
+        async let pantryFetch = pantryRepo.fetchAll(householdId: householdId)
+        async let shoppingFetch = shoppingRepo.fetchAll(householdId: householdId)
+        async let listsFetch = shoppingListRepo.fetchAll(householdId: householdId)
+        async let wasteFetch = wasteRepo.fetchByDateRange(householdId: householdId, start: .distantPast, end: .now)
+
+        let (pantryItems, shoppingItems, shoppingLists, wasteEvents) = try await (pantryFetch, shoppingFetch, listsFetch, wasteFetch)
+        let tempDir = FileManager.default.temporaryDirectory
+
+        switch format {
+        case .json:
+            let data = try exportJSON(
+                pantryItems: pantryItems,
+                shoppingLists: shoppingLists,
+                shoppingItems: shoppingItems,
+                wasteEvents: wasteEvents
+            )
+            let fileURL = tempDir.appendingPathComponent("Grub-Shelf-Export.json")
+            try data.write(to: fileURL)
+            return fileURL
+        case .csv:
+            let csv = exportCSV(
+                pantryItems: pantryItems,
+                shoppingItems: shoppingItems,
+                wasteEvents: wasteEvents
+            )
+            let fileURL = tempDir.appendingPathComponent("Grub-Shelf-Export.csv")
+            try csv.write(to: fileURL, atomically: true, encoding: .utf8)
+            return fileURL
+        }
+    }
 
     // MARK: - Export All Data as JSON
 
@@ -36,7 +80,7 @@ struct DataExportService {
         csv += "--- PANTRY ITEMS ---\n"
         csv += "Name,Quantity,Unit,Category,Expiry Date,Low Stock Threshold,Archived\n"
         for item in pantryItems {
-            let expiry = item.expiryDate.map { ISO8601DateFormatter().string(from: $0) } ?? ""
+            let expiry = item.expiryDate.map { ISO8601DateFormatter.shared.string(from: $0) } ?? ""
             csv += "\(escapeCSV(item.name)),\(item.quantity),\(item.unit.abbreviation),\(escapeCSV(item.category)),\(expiry),\(item.lowStockThreshold),\(item.archived)\n"
         }
 
@@ -51,7 +95,7 @@ struct DataExportService {
         csv += "\n--- WASTE EVENTS ---\n"
         csv += "Item Name,Date,Estimated Cost,Source\n"
         for event in wasteEvents {
-            let date = ISO8601DateFormatter().string(from: event.date)
+            let date = ISO8601DateFormatter.shared.string(from: event.date)
             let cost = event.estimatedCostMinor.map { String(format: "%.2f", Double($0) / 100.0) } ?? ""
             csv += "\(escapeCSV(event.itemName)),\(date),\(cost),\(event.source)\n"
         }

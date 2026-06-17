@@ -82,9 +82,9 @@ struct PantrySummaryStrip: View {
                 isSelected: viewModel.selectedAttention == .expiring
             ) {
                 if viewModel.selectedAttention == .expiring {
-                    viewModel.selectedAttention = .none
+                    viewModel.setAttention(.none)
                 } else {
-                    viewModel.selectedAttention = .expiring
+                    viewModel.setAttention(.expiring)
                 }
             }
             PantryMetricTile(

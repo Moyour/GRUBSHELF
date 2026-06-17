@@ -5,7 +5,7 @@ import Supabase
 final class HouseholdService {
     private let client: SupabaseClient
     private static let logger = Logger(subsystem: "com.grubshelf", category: "Household")
-    private let inviteRateLimiter = RateLimiter(maxAttempts: 10, window: 3600)
+    private let inviteRateLimiter = RateLimiter(maxAttempts: 10, window: 3600, persistenceKey: "GrubShelf.rateLimit.invite")
 
     init(client: SupabaseClient = SupabaseManager.shared.client) {
         self.client = client
@@ -34,11 +34,10 @@ final class HouseholdService {
     // MARK: - Members
 
     func fetchMembers(householdId: UUID) async throws -> [AppUser] {
-        try await client.from("users")
-            .select()
-            .eq("household_id", value: householdId.uuidString)
-            .execute()
-            .value
+        // Use RPC to bypass RLS issues after fresh sign-in
+        try await client.rpc("fetch_household_members", params: [
+            "p_household_id": householdId.uuidString
+        ]).execute().value
     }
 
     func updateMemberRole(userId: UUID, role: UserRole) async throws {
@@ -46,50 +45,45 @@ final class HouseholdService {
             "p_target_user_id": userId.uuidString,
             "p_new_role": role.rawValue,
         ]).execute()
-
-        // Audit log
-        do {
-            try await client.rpc("log_audit_event", params: [
-                "p_action": "change_member_role",
-                "p_target_entity": "users",
-                "p_target_id": userId.uuidString,
-                "p_metadata": "{\"new_role\": \"\(role.rawValue)\"}",
-            ]).execute()
-        } catch {
-            Self.logger.error("Audit log failed (change_member_role): \(error.localizedDescription, privacy: .public)")
-        }
     }
 
-    func removeMember(userId: UUID) async throws {
-        struct NullHousehold: Encodable {
-            let household_id: String? = nil
+    func removeMember(userId: UUID, reason: String? = nil) async throws {
+        struct RemoveMemberParams: Encodable {
+            let p_user_id: String
+            let p_reason: String?
+            let p_handle_pending_items: String
         }
-        try await client.from("users")
-            .update(NullHousehold())
-            .eq("user_id", value: userId.uuidString)
-            .execute()
+        try await client.rpc(
+            "remove_household_member",
+            params: RemoveMemberParams(
+                p_user_id: userId.uuidString,
+                p_reason: reason,
+                p_handle_pending_items: "keep"
+            )
+        ).execute()
+    }
 
-        // Audit log
-        do {
-            try await client.rpc("log_audit_event", params: [
-                "p_action": "remove_member",
-                "p_target_entity": "users",
-                "p_target_id": userId.uuidString,
-            ]).execute()
-        } catch {
-            Self.logger.error("Audit log failed (remove_member): \(error.localizedDescription, privacy: .public)")
-        }
+    func transferOwnership(to userId: UUID) async throws {
+        try await client.rpc("transfer_ownership", params: [
+            "p_new_owner_id": userId.uuidString,
+        ]).execute()
     }
 
     // MARK: - Invites
 
+    struct InviteResult {
+        let invite: HouseholdInvite
+        let emailDelivered: Bool
+        let usedResendOnboardingSender: Bool
+    }
+
     @discardableResult
-    func inviteMember(email: String, householdId: UUID, invitedBy: UUID) async throws -> HouseholdInvite {
+    func inviteMember(email: String, householdId: UUID, invitedBy: UUID) async throws -> InviteResult {
         try await inviteRateLimiter.attempt()
 
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        guard Self.isValidEmail(trimmed) else {
+        guard trimmed.isValidEmail else {
             throw InviteError.invalidEmail
         }
 
@@ -114,24 +108,44 @@ final class HouseholdService {
             Self.logger.error("Audit log failed (invite_member): \(error.localizedDescription, privacy: .public)")
         }
 
-        await sendHouseholdInviteEmail(inviteId: created.inviteId)
+        let emailOutcome = await sendHouseholdInviteEmail(inviteId: created.inviteId)
 
-        return created
+        return InviteResult(
+            invite: created,
+            emailDelivered: emailOutcome.delivered,
+            usedResendOnboardingSender: emailOutcome.usedResendOnboardingSender
+        )
     }
 
-    /// Best-effort: Edge Function sends via Resend. Invite row already exists if this fails.
-    private func sendHouseholdInviteEmail(inviteId: UUID) async {
-        struct SendHouseholdInviteResponse: Decodable {
-            let ok: Bool?
-        }
+    /// Internal result from the `send-household-invite` Edge Function call.
+    private struct InviteEmailSendOutcome: Sendable {
+        let delivered: Bool
+        let usedResendOnboardingSender: Bool
+    }
 
+    private func sendHouseholdInviteEmail(inviteId: UUID) async -> InviteEmailSendOutcome {
         do {
-            let _: SendHouseholdInviteResponse = try await client.functions.invoke(
+            let response: SendHouseholdInviteAPIResponse = try await client.functions.invoke(
                 "send-household-invite",
-                options: FunctionInvokeOptions(body: HouseholdInviteEmailPayload(inviteId: inviteId.uuidString))
+                options: FunctionInvokeOptions(body: HouseholdInviteEmailPayload(inviteId: inviteId.uuidString)),
+                decode: { data, _ in
+                    try JSONDecoder().decode(SendHouseholdInviteAPIResponse.self, from: data)
+                }
             )
+            let delivered = response.ok == true
+            let onboarding = response.usesResendOnboardingSender
+            return InviteEmailSendOutcome(delivered: delivered, usedResendOnboardingSender: onboarding)
         } catch {
-            Self.logger.error("send-household-invite Edge Function failed: \(String(describing: error), privacy: .public)")
+            var httpCode = ""
+            if case let FunctionsError.httpError(code, _) = error {
+                httpCode = String(code)
+            } else if case FunctionsError.relayError = error {
+                httpCode = "relay"
+            }
+            Self.logger.error(
+                "send-household-invite Edge Function failed (http=\(httpCode, privacy: .public)): \(String(describing: error), privacy: .public)"
+            )
+            return InviteEmailSendOutcome(delivered: false, usedResendOnboardingSender: false)
         }
     }
 
@@ -148,20 +162,47 @@ final class HouseholdService {
     func fetchInvitesForEmail(email: String) async throws -> [HouseholdInviteWithName] {
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
+        Self.logger.info("🔍 Fetching invites for email: \(trimmed, privacy: .private)")
+
+        // Query for both 'pending' and 'approved' status invites
         let invites: [HouseholdInviteWithName] = try await client.from("household_invites")
             .select("*, households(name)")
             .eq("invited_email", value: trimmed)
-            .eq("status", value: "pending")
+            .in("status", values: ["pending", "approved"])
             .execute()
             .value
 
-        return invites.filter { !$0.isExpired }
+        Self.logger.info("📬 Found \(invites.count) raw invite(s) from database")
+
+        if !invites.isEmpty {
+            for invite in invites {
+                Self.logger.info("  📧 Invite: email=\(invite.invitedEmail), status=\(invite.status.rawValue), expires=\(invite.expiresAt), expired=\(invite.isExpired)")
+            }
+        }
+
+        let activeInvites = invites.filter { !$0.isExpired }
+        Self.logger.info("✅ \(activeInvites.count) active (non-expired) invite(s)")
+
+        return activeInvites
+    }
+
+    /// Fetch invite details by invite token (invite_id)
+    func fetchInviteByToken(inviteToken: UUID) async throws -> HouseholdInviteWithName {
+        try await client.from("household_invites")
+            .select("*, households(name)")
+            .eq("invite_id", value: inviteToken.uuidString)
+            .in("status", values: ["pending", "approved"])
+            .single()
+            .execute()
+            .value
     }
 
     func acceptInvite(inviteId: UUID) async throws -> AppUser {
-        let rows: [AppUser] = try await client.rpc("accept_household_invite", params: [
-            "p_invite_id": inviteId.uuidString,
-        ]).execute().value
+        let rows: [AppUser] = try await withRetry { [client] in
+            try await client.rpc("accept_household_invite", params: [
+                "p_invite_id": inviteId.uuidString,
+            ]).execute().value
+        }
 
         guard let user = rows.first else {
             throw InviteError.acceptFailed
@@ -176,12 +217,6 @@ final class HouseholdService {
             .execute()
     }
 
-    // MARK: - Helpers
-
-    private static func isValidEmail(_ email: String) -> Bool {
-        let pattern = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
-        return email.range(of: pattern, options: .regularExpression) != nil
-    }
 }
 
 enum InviteError: LocalizedError {
@@ -199,7 +234,7 @@ enum InviteError: LocalizedError {
         case .alreadyMember: "This person is already a member of your household."
         case .alreadyInvited: "An invite has already been sent to this email."
         case .acceptFailed: "Failed to accept the invite. Please try again."
-        case .inviteCreationFailed: "Invite was sent but could not be confirmed. Pull to refresh the list."
+        case .inviteCreationFailed: "Could not create the invite. Please try again."
         }
     }
 }

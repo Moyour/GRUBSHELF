@@ -10,7 +10,7 @@ struct FAQView: View {
                 )
                 FAQItem(
                     question: "How does household sharing work?",
-                    answer: "From the Today (Home) tab, open Profile, then invite family members. Each member sees the same pantry and shopping lists. Admins can manage roles and remove members."
+                    answer: "From the Today (Home) tab, open Profile, then invite family members. Only household admins can send invites. Each member sees the same pantry and shopping lists. Admins can manage roles and remove members."
                 )
                 FAQItem(
                     question: "How do I transfer shopping items to my pantry?",
@@ -18,7 +18,7 @@ struct FAQView: View {
                 )
                 FAQItem(
                     question: "When do expiry reminders appear?",
-                    answer: "You'll receive alerts for items expiring within 3 days. Enable Expiry Alerts in Settings to get these notifications."
+                    answer: "Items expiring today trigger an immediate alert. Other items expiring within 3 days are included in your daily pantry check-in. Enable Expiry Alerts in Settings to receive these notifications."
                 )
                 FAQItem(
                     question: "What is the low stock threshold?",

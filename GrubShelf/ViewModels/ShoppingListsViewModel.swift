@@ -39,8 +39,57 @@ final class ShoppingListsViewModel {
     private let listRepository: ShoppingListRepository
     private let shoppingRepository: ShoppingRepository
     private let catalogRepository: GroceryCatalogRepository
+    private let pantryRepository: PantryRepository
     let householdId: UUID
     let userId: UUID
+    let userRole: UserRole
+    let isOwner: Bool
+    private let approvalService: ApprovalService
+    /// Optional gate service for enforcing subscription limits.
+    @ObservationIgnored var featureGateService: FeatureGateService?
+
+    /// Pantry snapshot used by the inline transfer flow to detect existing items
+    /// (powers the audit/merge step the same way ShoppingListViewModel does).
+    private(set) var activeListPantryItems: [PantryItem] = []
+    /// Drives the transfer sheet from the expanded active-list card on the Shop hub.
+    var showActiveTransferSheet = false
+
+    /// Items eligible to be moved into the pantry: approved + completed + not yet transferred.
+    var transferableActiveListItems: [ShoppingItem] {
+        activeListItems.filter { $0.isApproved && $0.completed && !$0.transferred }
+    }
+
+    /// True when every item on the active list is checked off and at least one can move to pantry.
+    var allActiveListItemsCompleted: Bool {
+        !activeListItems.isEmpty && activeListPendingItems.isEmpty
+    }
+
+    var hasActiveTransferableItems: Bool {
+        !transferableActiveListItems.isEmpty
+    }
+
+    var isAdmin: Bool { userRole == .admin }
+
+    private var permissionContext: HouseholdPermissionContext {
+        HouseholdPermissionContext(role: userRole, isOwner: isOwner)
+    }
+
+    var canCreateShoppingList: Bool {
+        PermissionService.canPerform(.createShoppingList, context: permissionContext)
+    }
+
+    var canDeleteShoppingList: Bool {
+        PermissionService.canPerform(.deleteShoppingList, context: permissionContext)
+    }
+
+    /// IDs of shopping items on the active list currently being mutated async.
+    private(set) var inflightItemIds: Set<UUID> = []
+    /// True while `createList` is running (prevents duplicate list creation).
+    private(set) var isCreatingList = false
+    /// List IDs currently being deleted.
+    private(set) var deletingListIds: Set<UUID> = []
+    /// True while an item add to the active list is in flight.
+    private(set) var isAddingToActiveList = false
 
     var hubSummary: ShoppingHubSummary {
         ShoppingHubSummary.make(lists: lists, listItemCounts: listItemCounts)
@@ -61,24 +110,38 @@ final class ShoppingListsViewModel {
 
     /// Items for the inline-expanded active list.
     var activeListItems: [ShoppingItem] = []
+    var activeItemToReject: ShoppingItem?
+    var activeRejectReasonText = ""
+    var showActiveRejectReasonPrompt = false
     var activeListNewItemName: String = ""
+    var activePantryWarning: String?
     var isSearchingActiveCatalog = false
     var activeCatalogSuggestions: [GroceryCatalogItem] = []
     private var activeCatalogSearchTask: Task<Void, Never>?
 
     var activeListPendingItems: [ShoppingItem] {
-        activeListItems.filter { !$0.completed }
+        activeListItems.filter { $0.isApproved && !$0.completed }
     }
 
     var activeListCompletedItems: [ShoppingItem] {
-        activeListItems.filter { $0.completed }
+        activeListItems.filter { $0.isApproved && $0.completed }
+    }
+
+    var activeListAwaitingApproval: [ShoppingItem] {
+        activeListItems.filter { $0.approvalStatus == .pending }
+    }
+
+    var myActiveListRejectedItems: [ShoppingItem] {
+        activeListItems.filter { $0.approvalStatus == .rejected && $0.createdBy == userId }
     }
 
     func loadActiveListItems() async {
         guard let active = activeList else {
             activeListItems = []
+            activeListPantryItems = []
             return
         }
+        activeListPantryItems = (try? await pantryRepository.fetchAll(householdId: householdId)) ?? activeListPantryItems
         do {
             activeListItems = try await shoppingRepository.fetchByList(listId: active.listId)
         } catch {
@@ -87,7 +150,113 @@ final class ShoppingListsViewModel {
         }
     }
 
+    func checkActivePantryDuplicate(name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else {
+            activePantryWarning = nil
+            return
+        }
+        if let match = ShoppingListAddBehavior.pantryMatch(in: activeListPantryItems, name: trimmed) {
+            activePantryWarning = ShoppingListAddBehavior.inPantryInlineMessage(for: match)
+        } else {
+            activePantryWarning = nil
+        }
+    }
+
+    func activePantrySuggestionSubtitle(for catalog: GroceryCatalogItem) -> String? {
+        guard let match = ShoppingListAddBehavior.pantryMatch(in: activeListPantryItems, name: catalog.name) else { return nil }
+        return ShoppingListAddBehavior.inPantrySuggestionSubtitle(for: match)
+    }
+
+    private func showAddedToActiveListMessage(for item: ShoppingItem) {
+        let base = isAdmin ? "\(item.name) added" : "\(item.name) submitted for approval"
+        if let pantry = ShoppingListAddBehavior.pantryMatch(in: activeListPantryItems, name: item.name) {
+            ToastManager.shared.show(
+                "\(base). \(ShoppingListAddBehavior.inPantryInlineMessage(for: pantry)).",
+                style: .success
+            )
+        } else {
+            ToastManager.shared.show(base, style: .success)
+        }
+    }
+
+    func approveActiveItem(_ item: ShoppingItem) async {
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
+        do {
+            let approved = try await approvalService.approveShoppingItem(itemId: item.itemId)
+            if let index = activeListItems.firstIndex(where: { $0.itemId == item.itemId }) {
+                activeListItems[index] = approved
+            }
+            ApprovalNotificationCoordinator.shared.clearNotified(item.itemId)
+            await loadItemCounts()
+            ToastManager.shared.show("\(approved.name) approved", style: .success)
+        } catch {
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "approve \(item.name)"),
+                style: .error
+            )
+        }
+    }
+
+    func beginRejectActiveItem(_ item: ShoppingItem) {
+        activeItemToReject = item
+        activeRejectReasonText = ""
+        showActiveRejectReasonPrompt = true
+    }
+
+    func confirmRejectActiveItem() async {
+        guard let item = activeItemToReject else { return }
+        let trimmed = activeRejectReasonText.trimmingCharacters(in: .whitespacesAndNewlines)
+        activeItemToReject = nil
+        activeRejectReasonText = ""
+        showActiveRejectReasonPrompt = false
+        await rejectActiveItem(item, reason: trimmed.isEmpty ? nil : trimmed)
+    }
+
+    func cancelRejectActiveItem() {
+        activeItemToReject = nil
+        activeRejectReasonText = ""
+        showActiveRejectReasonPrompt = false
+    }
+
+    func rejectActiveItem(_ item: ShoppingItem, reason: String? = nil) async {
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
+        do {
+            let rejected = try await approvalService.rejectShoppingItem(itemId: item.itemId, reason: reason)
+            if let index = activeListItems.firstIndex(where: { $0.itemId == item.itemId }) {
+                activeListItems[index] = rejected
+            }
+            ApprovalNotificationCoordinator.shared.clearNotified(item.itemId)
+            await loadItemCounts()
+            ToastManager.shared.show("\(rejected.name) rejected", style: .success)
+        } catch {
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "reject \(item.name)"),
+                style: .error
+            )
+        }
+    }
+
+    func deleteActiveItem(_ item: ShoppingItem) async {
+        do {
+            try await shoppingRepository.delete(itemId: item.itemId)
+            activeListItems.removeAll { $0.itemId == item.itemId }
+            await loadItemCounts()
+            ToastManager.shared.show("\(item.name) removed", style: .success)
+        } catch {
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "remove that item"),
+                style: .error
+            )
+        }
+    }
+
     func toggleActiveItem(_ item: ShoppingItem) async {
+        guard item.isApproved else { return }
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
         var updated = item
         updated.completed.toggle()
         updated.updatedAt = .now
@@ -100,7 +269,10 @@ final class ShoppingListsViewModel {
             await loadItemCounts()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         } catch {
-            ToastManager.shared.show("Couldn't save that change", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "save that change"),
+                style: .error
+            )
         }
     }
 
@@ -108,79 +280,154 @@ final class ShoppingListsViewModel {
         guard let active = activeList else { return }
         let name = activeListNewItemName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        guard !isAddingToActiveList else { return }
+        isAddingToActiveList = true
+        defer { isAddingToActiveList = false }
 
         activeListNewItemName = ""
         activeCatalogSuggestions = []
 
-        // If the same item already exists (pending), increment its quantity
-        if let index = activeListItems.firstIndex(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame && !$0.completed }) {
-            var existing = activeListItems[index]
-            existing.quantity += 1
-            existing.updatedAt = .now
-            do {
-                let saved = try await shoppingRepository.update(existing)
-                activeListItems[index] = saved
-                await loadItemCounts()
-                ToastManager.shared.show("\(saved.name) ×\(Int(saved.quantity))", style: .success)
-            } catch {
-                ToastManager.shared.show("Couldn't save that change", style: .error)
-            }
+        await refreshActiveItemsBeforeAdd()
+
+        // Check for duplicates - if found, INCREMENT quantity instead of creating new item
+        // Check both approved AND pending items (same user's pending items should merge)
+        if let existingIndex = activeListItems.firstIndex(where: { existing in
+            !existing.completed
+                && GroceryCatalogSearchRanker.shoppingNamesMatch(existing.name, name)
+        }) {
+            // Found duplicate - increment quantity instead
+            await adjustActiveQuantity(itemId: activeListItems[existingIndex].itemId, delta: 1)
             return
         }
 
-        let item = ShoppingItem(
-            itemId: UUID(),
+        let item = ShoppingItem.newFreeTextLine(
+            name: name,
             householdId: householdId,
             listId: active.listId,
-            name: name,
-            quantity: 1,
-            unit: nil,
-            category: nil,
-            completed: false,
             createdBy: userId,
-            createdAt: .now,
-            updatedAt: .now
+            approvalStatus: isAdmin ? .approved : .pending
         )
 
         do {
             let saved = try await shoppingRepository.add(item)
-            activeListItems.append(saved)
+            await loadActiveListItems()
             await loadItemCounts()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            ToastManager.shared.show("\(saved.name) added", style: .success)
+            showAddedToActiveListMessage(for: saved)
         } catch {
-            ToastManager.shared.show("Couldn't add that item", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "add that item"),
+                style: .error
+            )
         }
     }
 
     func addActiveCatalogItem(_ catalogItem: GroceryCatalogItem) async {
         guard let active = activeList else { return }
-
         activeListNewItemName = ""
         activeCatalogSuggestions = []
 
-        let item = ShoppingItem(
-            itemId: UUID(),
+        guard !isAddingToActiveList else { return }
+        isAddingToActiveList = true
+        defer { isAddingToActiveList = false }
+
+        await refreshActiveItemsBeforeAdd()
+
+        // Check for duplicates - if found, INCREMENT quantity instead of creating new item
+        // Check both approved AND pending items (same user's pending items should merge)
+        if let existingIndex = activeListItems.firstIndex(where: { existing in
+            !existing.completed
+                && GroceryCatalogSearchRanker.shouldCombineShoppingQuantity(existing: existing, catalog: catalogItem)
+        }) {
+            // Found duplicate - increment quantity instead
+            await adjustActiveQuantity(itemId: activeListItems[existingIndex].itemId, delta: 1)
+            return
+        }
+
+        let item = ShoppingItem.newCatalogLine(
+            from: catalogItem,
             householdId: householdId,
             listId: active.listId,
-            name: catalogItem.name,
-            quantity: 1,
-            unit: catalogItem.defaultUnit,
-            category: catalogItem.defaultCategory,
-            completed: false,
             createdBy: userId,
-            createdAt: .now,
-            updatedAt: .now
+            approvalStatus: isAdmin ? .approved : .pending
         )
+        activeListItems.append(item)
 
         do {
             let saved = try await shoppingRepository.add(item)
-            activeListItems.append(saved)
+            notifyIfCatalogLinkMissing(expected: catalogItem.catalogItemId, saved: saved)
+            if let index = activeListItems.firstIndex(where: { $0.itemId == item.itemId }) {
+                activeListItems[index] = saved
+            } else {
+                await loadActiveListItems()
+            }
             await loadItemCounts()
-            ToastManager.shared.show("\(saved.name) added", style: .success)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showAddedToActiveListMessage(for: saved)
         } catch {
-            ToastManager.shared.show("Couldn't add that item", style: .error)
+            activeListItems.removeAll { $0.itemId == item.itemId }
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "add that item"),
+                style: .error
+            )
         }
+    }
+
+    private func refreshActiveItemsBeforeAdd() async {
+        guard let active = activeList else { return }
+        do {
+            let server = try await shoppingRepository.fetchByList(listId: active.listId)
+            activeListItems = ShoppingItemsMerge.merging(server: server, preservingLocal: activeListItems)
+        } catch {
+            activeListItems = cachedShoppingItems.filter { $0.listId == active.listId }
+        }
+    }
+
+    private func resolveActiveCatalogMatch(for name: String) async -> GroceryCatalogItem? {
+        guard name.count >= 2 else { return nil }
+        let raw = (try? await catalogRepository.search(query: name, limit: 20)) ?? []
+        return GroceryCatalogSearchRanker.exactMatch(in: raw, query: name)
+    }
+
+    func adjustActiveQuantity(itemId: UUID, delta: Int) async {
+        guard let index = activeListItems.firstIndex(where: { $0.itemId == itemId }) else { return }
+        let item = activeListItems[index]
+        guard !item.completed else { return }
+        guard inflightItemIds.insert(itemId).inserted else { return }
+        defer { inflightItemIds.remove(itemId) }
+
+        if delta < 0, item.quantity <= 1 {
+            inflightItemIds.remove(itemId)
+            await deleteActiveItem(item)
+            return
+        }
+
+        var updated = item
+        guard ShoppingListAddBehavior.applyQuantityChange(to: &updated, delta: delta) else { return }
+        do {
+            let saved = try await shoppingRepository.update(updated)
+            activeListItems[index] = saved
+            await loadItemCounts()
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } catch {
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "save that change"),
+                style: .error
+            )
+        }
+    }
+
+    /// True when catalog matches are showing — free-text submit would add the query string only.
+    var activeCatalogSuggestionsVisible: Bool {
+        !activeCatalogSuggestions.isEmpty
+    }
+
+    private func notifyIfCatalogLinkMissing(expected: UUID, saved: ShoppingItem) {
+        guard saved.catalogItemId != expected else { return }
+        ToastManager.shared.show(
+            "Added \(saved.name), but the catalog link did not save. In Supabase: Settings → API → Reload schema cache, then try again.",
+            style: .warning
+        )
     }
 
     func searchActiveCatalog() {
@@ -195,9 +442,9 @@ final class ShoppingListsViewModel {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             isSearchingActiveCatalog = true
-            let results = (try? await catalogRepository.search(query: query, limit: 5)) ?? []
+            let raw = (try? await catalogRepository.search(query: query, limit: 20)) ?? []
             guard !Task.isCancelled else { return }
-            activeCatalogSuggestions = results
+            activeCatalogSuggestions = GroceryCatalogSearchRanker.suggestions(from: raw, query: query, limit: 8)
             isSearchingActiveCatalog = false
         }
     }
@@ -223,14 +470,46 @@ final class ShoppingListsViewModel {
         listRepository: ShoppingListRepository,
         shoppingRepository: ShoppingRepository,
         catalogRepository: GroceryCatalogRepository = SupabaseGroceryCatalogRepository(),
+        pantryRepository: PantryRepository = SupabasePantryRepository(),
         householdId: UUID,
-        userId: UUID
+        userId: UUID,
+        userRole: UserRole = .member,
+        isOwner: Bool = false,
+        approvalService: ApprovalService = ApprovalService()
     ) {
         self.listRepository = listRepository
         self.shoppingRepository = shoppingRepository
         self.catalogRepository = catalogRepository
+        self.pantryRepository = pantryRepository
         self.householdId = householdId
         self.userId = userId
+        self.userRole = userRole
+        self.isOwner = isOwner
+        self.approvalService = approvalService
+    }
+
+    // MARK: - Inline transfer (active list on the Shop hub)
+
+    /// Pre-loads the pantry snapshot so the transfer sheet can immediately decide
+    /// between the audit (merge into existing pantry items) and direct-add flows.
+    /// Best-effort: if the fetch fails we fall back to an empty list which sends
+    /// the user down the direct-add path (the existing detail-screen behaviour).
+    func prepareActiveTransfer() async {
+        guard hasActiveTransferableItems else { return }
+        do {
+            activeListPantryItems = try await pantryRepository.fetchAll(householdId: householdId)
+        } catch {
+            activeListPantryItems = []
+        }
+        showActiveTransferSheet = true
+    }
+
+    /// Re-syncs the inline card after a transfer completes so the CTA disappears
+    /// and the "Transferred" badge updates without needing the user to navigate.
+    func refreshAfterActiveTransfer() async {
+        await loadActiveListItems()
+        await loadItemCounts()
+        await loadLists(forceRefresh: true)
     }
 
     func loadLists(forceRefresh: Bool = false) async {
@@ -244,14 +523,9 @@ final class ShoppingListsViewModel {
             lastLoadedAt = .now
         } catch {
             hasLoaded = true
-            switch ErrorHandler.classify(error) {
-            case .networkFailure:
-                ToastManager.shared.show("You're offline — showing cached data", style: .error)
-            case .serverError:
-                ToastManager.shared.show("Server is temporarily unavailable", style: .error)
-            default:
-                errorMessage = "Failed to load lists: \(error.localizedDescription)"
-            }
+            let message = ErrorHandler.userMessage(for: error, action: "load your shopping lists")
+            errorMessage = message
+            ToastManager.shared.show(message, style: .error)
         }
     }
 
@@ -259,8 +533,15 @@ final class ShoppingListsViewModel {
         do {
             let allItems = try await shoppingRepository.fetchAll(householdId: householdId)
             cachedShoppingItems = allItems
+            if isAdmin {
+                ApprovalNotificationCoordinator.shared.processPendingItems(
+                    pantryItems: [],
+                    shoppingItems: allItems,
+                    isAdmin: true
+                )
+            }
             var counts: [UUID: (pending: Int, completed: Int)] = [:]
-            for item in allItems {
+            for item in allItems where item.isApproved {
                 guard let listId = item.listId else { continue }
                 let current = counts[listId] ?? (pending: 0, completed: 0)
                 if item.completed {
@@ -278,8 +559,20 @@ final class ShoppingListsViewModel {
 
     @discardableResult
     func createList() async -> ShoppingList? {
+        guard canCreateShoppingList else {
+            ToastManager.shared.show("Only household admins can create shopping lists.", style: .error)
+            return nil
+        }
+        // Check shopping list limit
+        if let gate = featureGateService {
+            let allowed = await gate.checkLimit(.shoppingLists, householdId: householdId)
+            if !allowed { return nil }
+        }
         let name = newListName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
+        guard !isCreatingList else { return nil }
+        isCreatingList = true
+        defer { isCreatingList = false }
 
         let list = ShoppingList(
             listId: UUID(),
@@ -299,15 +592,25 @@ final class ShoppingListsViewModel {
             lists.insert(saved, at: 0)
             await loadItemCounts()
             ToastManager.shared.show("\(saved.name) created", style: .success)
+            BetaTelemetryService.shared.logFirstListCreated()
             return saved
         } catch {
             errorMessage = "Failed to create list: \(error.localizedDescription)"
-            ToastManager.shared.show("Failed to create list", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "create list"),
+                style: .error
+            )
             return nil
         }
     }
 
     func deleteList(_ list: ShoppingList) async {
+        guard canDeleteShoppingList else {
+            ToastManager.shared.show("Only household admins can delete shopping lists.", style: .error)
+            return
+        }
+        guard deletingListIds.insert(list.listId).inserted else { return }
+        defer { deletingListIds.remove(list.listId) }
         do {
             try await listRepository.delete(listId: list.listId)
             lists.removeAll { $0.listId == list.listId }
@@ -319,7 +622,10 @@ final class ShoppingListsViewModel {
             ToastManager.shared.show("\(list.name) deleted", style: .success)
         } catch {
             errorMessage = "Failed to delete list: \(error.localizedDescription)"
-            ToastManager.shared.show("Failed to delete list", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "delete list"),
+                style: .error
+            )
         }
     }
 

@@ -39,11 +39,14 @@ struct BrandFont {
                 UIFontDescriptor.TraitKey.weight: weight.rawValue
             ]
         ])
-        let font = UIFont(descriptor: descriptor, size: size)
-        if font.familyName == family || font.fontName.lowercased().contains(family.lowercased()) {
-            return font
+        let baseFont = UIFont(descriptor: descriptor, size: size)
+        let font: UIFont
+        if baseFont.familyName == family || baseFont.fontName.lowercased().contains(family.lowercased()) {
+            font = baseFont
+        } else {
+            font = .systemFont(ofSize: size, weight: weight)
         }
-        return .systemFont(ofSize: size, weight: weight)
+        return UIFontMetrics.default.scaledFont(for: font)
     }
 
     fileprivate static func variableFont(family: String, size: CGFloat, weight: Font.Weight) -> Font {

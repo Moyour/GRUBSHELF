@@ -13,6 +13,7 @@ GrubShelf is an iOS app that helps households manage their pantry inventory, pla
 - [Project Structure](#project-structure)
 - [Screens & Functionality](#screens--functionality)
 - [Getting Started](#getting-started)
+- [Release Checklist](#release-checklist)
 - [Configuration](#configuration)
 - [Testing](#testing)
 
@@ -207,22 +208,62 @@ GrubShelf/
    - Run migrations: `supabase db push` (or apply `supabase/migrations/*.sql`)
 
 3. **Household invite emails (optional)**
-   - Create a [Resend](https://resend.com) API key
    - Deploy the Edge Function: `supabase functions deploy send-household-invite`
-   - Set secrets on the hosted project:
-     - `RESEND_API_KEY` — required for real delivery
-     - `HOUSEHOLD_INVITE_EMAIL_FROM` — e.g. `GrubShelf <notifications@yourdomain.com>` (use a domain you verify in Resend; the default `onboarding@resend.dev` only works for Resend’s own testing limits)
-   - Without these secrets, invites still save in the database; the app logs a non-fatal error if the function returns 503
+   - **Option A — Resend (simplest):** set function secrets on the hosted project:
+     - `RESEND_API_KEY` — [Resend](https://resend.com) API key (this path is used whenever this secret is set)
+     - `HOUSEHOLD_INVITE_EMAIL_FROM` — e.g. `GrubShelf <notifications@yourdomain.com>` (verify the domain in Resend; if omitted, the function falls back to `GrubShelf <onboarding@resend.dev>` for Resend’s sandbox limits)
+   - **Option B — SMTP:** omit `RESEND_API_KEY` and set `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, and optionally `SMTP_PORT` (default `587`), e.g. Microsoft 365 / Google Workspace SMTP
+   - Without Resend or full SMTP config, invites still save in the database, but the Edge Function returns 503 and the app shows that the email could not be sent
 
-4. **Configure Auth (optional)**
+4. **Daily digest emails (optional)**
+   - Deploy the Edge Function: `supabase functions deploy send-daily-digest`
+   - Set function secrets for SMTP on the hosted project:
+     - `SMTP_HOST` — e.g. `smtp.office365.com`
+     - `SMTP_USER` — sending address
+     - `SMTP_PASS` — app password or OAuth credential
+     - `SMTP_PORT` — default `587` (STARTTLS)
+   - Apply migration `029_daily_digest_cron_vault.sql` (included in `supabase db push`) — reads credentials from Vault instead of `app.settings`
+     > Store the project URL and service-role key in `vault.secrets` (see `CONFIGURE_VAULT_SECRETS.sql`).
+   - **Verify the job is registered:**
+     ```sql
+     SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'daily-digest-email';
+     ```
+   - **Check recent runs:**
+     ```sql
+     SELECT * FROM cron.job_run_details
+     WHERE jobid = (SELECT jobid FROM cron.job WHERE jobname = 'daily-digest-email')
+     ORDER BY start_time DESC LIMIT 5;
+     ```
+   - **Disable the job** (if needed):
+     ```sql
+     SELECT cron.unschedule('daily-digest-email');
+     ```
+   - The job fires daily at **08:00 UTC**. Without eligible users (email notifications enabled + household), the function returns 200 with `sent: 0`. If all sends fail, it returns 207 with `ok: false`.
+
+5. **Configure Auth (optional)**
    - See `docs/GOOGLE_SIGNIN_SETUP.md` for Google Sign-In
    - See `docs/APPLE_SIGNIN_SETUP.md` for Sign in with Apple
    - Add `GOOGLE_CLIENT_ID` to `Config.plist` for Google
 
-5. **Build and run**
+6. **Build and run**
    - Open `GrubShelf.xcodeproj` in Xcode
    - Select a simulator or device
    - Build and run (⌘R)
+
+---
+
+## Release Checklist
+
+Use **[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)** as the single release gate (security, tests, backend, push, regression, TestFlight).
+
+Quick essentials:
+
+1. `GrubShelf/Config.plist` with real Supabase + Google keys (gitignored on CI — add on build machine)
+2. `xcodebuild test` — all `GrubShelfTests` green
+3. `supabase db push` through migration `073`; run `docs/BACKEND_VERIFICATION.sql`
+4. Deploy edge functions; `send-daily-digest` / `send-push` require service-role Bearer (see `docs/SECURITY_ROTATION.md`)
+5. Production APNs + device push test (`docs/PUSH_RELEASE_STATUS.md`)
+6. Manual regression sign-off (`docs/REGRESSION_EXECUTION_LOG.md`)
 
 ---
 
@@ -249,21 +290,14 @@ GrubShelf/
 
 ## Testing
 
-Unit tests are in `GrubShelfTests/`:
+Unit tests live in `GrubShelfTests/` (36 suites, 230+ tests), including approvals, permissions, network retry, deep links, notifications, transfer, and widget snapshots.
 
-- `PantryItemTests` — State transitions, validation
-- `PantryViewModelTests`
-- `ShoppingListViewModelTests`
-- `ShoppingListsViewModelTests`
-- `DashboardViewModelTests`
-- `GroceryCatalogSearchViewModelTests`
-- `CurrencyFormatterTests`
-- `FinancialServiceTests`
-- `ErrorHandlerTests`
-- `AppErrorTests`
-- `PermissionServiceTests`
+```bash
+xcodebuild test -project GrubShelf.xcodeproj -scheme GrubShelf \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
+```
 
-Run tests in Xcode: **Product → Test** (⌘U)
+Manual QA: `docs/REGRESSION_TEST_PLAN.md` + `docs/REGRESSION_EXECUTION_LOG.md`
 
 ---
 

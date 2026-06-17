@@ -5,8 +5,6 @@ struct ForgotPasswordView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var email = ""
-    @State private var didSendInstructions = false
-    @State private var resendCooldown = 0
 
     var body: some View {
         NavigationStack {
@@ -26,96 +24,68 @@ struct ForgotPasswordView: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
 
-                if !didSendInstructions {
-                    Section {
-                        TextField("Email address", text: $email)
-                            .textContentType(.emailAddress)
-                            .keyboardType(.emailAddress)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    } footer: {
-                        Text("We will email you a reset link. Open it on this device to choose a new password.")
+                Section {
+                    TextField("Email address", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } footer: {
+                    VStack(alignment: .leading, spacing: AppSpacing.compactGap) {
+                        Text("We will email you a 6-digit code. Enter it in the app to choose a new password.")
+                        
+                        Text("Note: If you signed in with Apple or Google, please use that button instead. Password reset is only for email accounts.")
+                            .font(BrandFont.regular(13))
+                            .foregroundStyle(.gsTextSecondary)
+                            .padding(.top, 4)
                     }
+                }
 
-                    if let error = authService.errorMessage {
-                        Section {
+                if let error = authService.errorMessage {
+                    Section {
+                        // Check if this is an OAuth provider message (Apple/Google)
+                        if error.contains("Apple") || error.contains("Google") {
+                            VStack(alignment: .leading, spacing: AppSpacing.compactGap) {
+                                HStack(alignment: .top, spacing: AppSpacing.compactGap) {
+                                    Image(systemName: "info.circle.fill")
+                                        .foregroundStyle(BrandPalette.Status.info)
+                                        .font(.system(size: 20))
+                                    Text(error)
+                                        .font(BrandFont.regular(14))
+                                        .foregroundStyle(.gsTextPrimary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(AppSpacing.mediumSpacing)
+                                .background(BrandPalette.Status.info.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: AppSpacing.cardRadius, style: .continuous))
+                            }
+                        } else {
                             Text(error)
                                 .font(BrandFont.regular(14))
                                 .foregroundStyle(.gsDanger)
                         }
                     }
+                }
 
-                    Section {
-                        Button {
-                            Task {
-                                let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
-                                await authService.requestPasswordReset(email: trimmed)
-                                if authService.errorMessage == nil {
-                                    didSendInstructions = true
-                                    startResendCooldown()
-                                }
-                            }
-                        } label: {
-                            if authService.isLoading {
-                                ProgressView().frame(maxWidth: .infinity)
-                            } else {
-                                Text("Send reset link")
-                                    .font(BrandFont.semiBold(17))
-                                    .frame(maxWidth: .infinity)
+                Section {
+                    Button {
+                        Task {
+                            let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+                            await authService.requestPasswordReset(email: trimmed)
+                            if authService.errorMessage == nil {
+                                dismiss()
                             }
                         }
-                        .disabled(authService.isLoading || !isEmailValid)
-                    }
-                } else {
-                    Section {
-                        Text(
-                            "Check your inbox for an email from us. Tap the reset link—it opens GrubShelf so you can set a new password."
-                        )
-                        .font(BrandFont.regular(15))
-                        .foregroundStyle(.gsTextSecondary)
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-
-                    Section {
-                        Button {
-                            Task {
-                                let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
-                                await authService.requestPasswordReset(email: trimmed)
-                                if authService.errorMessage == nil {
-                                    startResendCooldown()
-                                    ToastManager.shared.show("Another reset email is on its way.", style: .success)
-                                }
-                            }
-                        } label: {
-                            if resendCooldown > 0 {
-                                Text("Resend link (\(resendCooldown)s)")
-                                    .font(BrandFont.regular(14))
-                                    .frame(maxWidth: .infinity)
-                            } else {
-                                Text("Resend link")
-                                    .font(BrandFont.regular(14))
-                                    .frame(maxWidth: .infinity)
-                            }
-                        }
-                        .disabled(resendCooldown > 0 || authService.isLoading)
-                    }
-
-                    if let error = authService.errorMessage {
-                        Section {
-                            Text(error)
-                                .font(BrandFont.regular(14))
-                                .foregroundStyle(.gsDanger)
+                    } label: {
+                        if authService.isLoading {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Send reset code")
+                                .font(BrandFont.semiBold(17))
+                                .frame(maxWidth: .infinity)
                         }
                     }
-
-                    Section {
-                        Button("Done") {
-                            authService.errorMessage = nil
-                            dismiss()
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
+                    .disabled(authService.isLoading || !isEmailValid)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -134,17 +104,6 @@ struct ForgotPasswordView: View {
     }
 
     private var isEmailValid: Bool {
-        let pattern = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
-        return email.range(of: pattern, options: .regularExpression) != nil
-    }
-
-    private func startResendCooldown() {
-        resendCooldown = 60
-        Task {
-            while resendCooldown > 0 {
-                try? await Task.sleep(for: .seconds(1))
-                resendCooldown -= 1
-            }
-        }
+        email.isValidEmail
     }
 }

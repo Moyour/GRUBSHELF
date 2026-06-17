@@ -40,7 +40,8 @@ struct ShoppingListsViewModelTests {
             listRepository: listRepo,
             shoppingRepository: shoppingRepo,
             householdId: householdId,
-            userId: userId
+            userId: userId,
+            userRole: .admin
         )
         vm.newListName = "Groceries"
         let created = await vm.createList()
@@ -58,12 +59,47 @@ struct ShoppingListsViewModelTests {
             listRepository: listRepo,
             shoppingRepository: shoppingRepo,
             householdId: householdId,
-            userId: userId
+            userId: userId,
+            userRole: .admin
         )
         vm.newListName = "   "
         let created = await vm.createList()
         #expect(created == nil)
         #expect(vm.lists.isEmpty)
+    }
+
+    @Test func memberCannotDeleteList() async {
+        let list = makeList()
+        let listRepo = MockShoppingListRepository()
+        listRepo.lists = [list]
+        let shoppingRepo = MockShoppingRepository()
+        let vm = ShoppingListsViewModel(
+            listRepository: listRepo,
+            shoppingRepository: shoppingRepo,
+            householdId: householdId,
+            userId: userId,
+            userRole: .member
+        )
+        await vm.deleteList(list)
+        #expect(listRepo.lists.count == 1)
+        #expect(!vm.canDeleteShoppingList)
+    }
+
+    @Test func memberCannotCreateList() async {
+        let listRepo = MockShoppingListRepository()
+        let shoppingRepo = MockShoppingRepository()
+        let vm = ShoppingListsViewModel(
+            listRepository: listRepo,
+            shoppingRepository: shoppingRepo,
+            householdId: householdId,
+            userId: userId,
+            userRole: .member
+        )
+        vm.newListName = "Groceries"
+        let created = await vm.createList()
+        #expect(created == nil)
+        #expect(vm.lists.isEmpty)
+        #expect(!vm.canCreateShoppingList)
     }
 
     @Test func hubSummaryCountsAllListsButExcludesTransferredFromItemTotals() {
@@ -112,7 +148,8 @@ struct ShoppingListsViewModelTests {
             listRepository: listRepo,
             shoppingRepository: shoppingRepo,
             householdId: householdId,
-            userId: userId
+            userId: userId,
+            userRole: .admin
         )
         await vm.loadLists()
         #expect(vm.lists.count == 1)
@@ -210,5 +247,67 @@ struct ShoppingListsViewModelTests {
         let preview = vm.homePrimaryListPreview
         #expect(preview?.items.count == 1)
         #expect(preview?.items.first?.name == "Kept")
+    }
+
+    private func makeItem(
+        listId: UUID,
+        name: String,
+        completed: Bool
+    ) -> ShoppingItem {
+        ShoppingItem(
+            itemId: UUID(),
+            householdId: householdId,
+            listId: listId,
+            name: name,
+            quantity: 1,
+            unit: .pcs,
+            category: nil,
+            completed: completed,
+            createdBy: userId,
+            createdAt: .now,
+            updatedAt: .now
+        )
+    }
+
+    // Partial transfer: transferable items exist as soon as any completed items are present.
+    @Test func hasActiveTransferableItemsTrueWhenSomeItemsCompleted() async {
+        let list = makeList()
+        let listRepo = MockShoppingListRepository()
+        listRepo.lists = [list]
+        let shoppingRepo = MockShoppingRepository()
+        shoppingRepo.items = [
+            makeItem(listId: list.listId, name: "Milk", completed: false),
+            makeItem(listId: list.listId, name: "Bread", completed: true),
+        ]
+        let vm = ShoppingListsViewModel(
+            listRepository: listRepo,
+            shoppingRepository: shoppingRepo,
+            householdId: householdId,
+            userId: userId
+        )
+        await vm.loadLists()
+        await vm.loadActiveListItems()
+        #expect(!vm.transferableActiveListItems.isEmpty)
+        #expect(vm.hasActiveTransferableItems)
+    }
+
+    @Test func hasActiveTransferableItemsTrueWhenAllItemsCompleted() async {
+        let list = makeList()
+        let listRepo = MockShoppingListRepository()
+        listRepo.lists = [list]
+        let shoppingRepo = MockShoppingRepository()
+        shoppingRepo.items = [
+            makeItem(listId: list.listId, name: "Milk", completed: true),
+            makeItem(listId: list.listId, name: "Bread", completed: true),
+        ]
+        let vm = ShoppingListsViewModel(
+            listRepository: listRepo,
+            shoppingRepository: shoppingRepo,
+            householdId: householdId,
+            userId: userId
+        )
+        await vm.loadLists()
+        await vm.loadActiveListItems()
+        #expect(vm.hasActiveTransferableItems)
     }
 }

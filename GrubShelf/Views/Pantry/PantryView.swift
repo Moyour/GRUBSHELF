@@ -4,9 +4,10 @@ struct PantryView: View {
     @State private var viewModel: PantryViewModel
     @State private var showEmptyState = false
     @State private var showPendingApprovals = false
-    @State private var viewMode: PantryViewMode = .grid
+    @AppStorage("GrubShelf.pantryViewMode") private var viewMode: PantryViewMode = .grid
+    @Environment(\.featureGateService) private var featureGateService
 
-    private enum PantryViewMode: String {
+    enum PantryViewMode: String {
         case list, grid
     }
 
@@ -36,22 +37,69 @@ struct PantryView: View {
             .navigationTitle("Pantry")
             .toolbar {
                 if viewModel.hasLoaded {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                viewMode = viewMode == .grid ? .list : .grid
+                    if viewModel.isSelectingMultiple {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(viewModel.selectedItemCount == viewModel.filteredItems.count ? "Deselect All" : "Select All") {
+                                if viewModel.selectedItemCount == viewModel.filteredItems.count {
+                                    viewModel.deselectAll()
+                                } else {
+                                    viewModel.selectAll()
+                                }
                             }
-                        } label: {
-                            Image(systemName: viewMode == .grid ? "list.bullet" : "square.grid.2x2")
+                            .font(BrandFont.semiBold(15))
                         }
-                        .accessibilityLabel(viewMode == .grid ? "Switch to list view" : "Switch to grid view")
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        PrimaryPlusToolbarButton(
-                            accessibilityLabel: "Add item",
-                            accessibilityHint: "Double tap to add a new pantry item"
-                        ) {
-                            viewModel.showAddSheet = true
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") {
+                                withAnimation { viewModel.exitSelectionMode() }
+                            }
+                            .font(BrandFont.semiBold(15))
+                        }
+                    } else {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Menu {
+                                ForEach(PantrySortOrder.allCases, id: \.self) { order in
+                                    Button {
+                                        withAnimation { viewModel.selectedSort = order }
+                                    } label: {
+                                        if viewModel.selectedSort == order {
+                                            Label(order.rawValue, systemImage: "checkmark")
+                                        } else {
+                                            Text(order.rawValue)
+                                        }
+                                    }
+                                }
+                                Divider()
+                                Button {
+                                    if let gate = featureGateService,
+                                       !gate.requireFeature(.bulkOperations) {
+                                        return
+                                    }
+                                    withAnimation { viewModel.isSelectingMultiple = true }
+                                } label: {
+                                    Label("Select items", systemImage: "checkmark.circle")
+                                }
+                            } label: {
+                                Image(systemName: "arrow.up.arrow.down")
+                            }
+                            .accessibilityLabel("Sort and manage pantry items")
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    viewMode = viewMode == .grid ? .list : .grid
+                                }
+                            } label: {
+                                Image(systemName: viewMode == .grid ? "list.bullet" : "square.grid.2x2")
+                            }
+                            .accessibilityLabel(viewMode == .grid ? "Switch to list view" : "Switch to grid view")
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            PrimaryPlusToolbarButton(
+                                accessibilityLabel: "Add item",
+                                accessibilityHint: "Double tap to add a new pantry item"
+                            ) {
+                                viewModel.showAddSheet = true
+                            }
                         }
                     }
                 }
@@ -99,13 +147,64 @@ struct PantryView: View {
                 }
             }
             .sheet(item: $viewModel.itemToEdit) { item in
-                AddEditPantryItemView(viewModel: AddEditPantryItemViewModel(
-                    repository: viewModel.repository,
-                    householdId: viewModel.householdId,
-                    userId: viewModel.userId,
-                    userRole: viewModel.userRole,
-                    existingItem: item
-                ))
+                AddEditPantryItemView(
+                    viewModel: AddEditPantryItemViewModel(
+                        repository: viewModel.repository,
+                        householdId: viewModel.householdId,
+                        userId: viewModel.userId,
+                        userRole: viewModel.userRole,
+                        existingItem: item
+                    ),
+                    onDelete: { deletedId in
+                        withAnimation {
+                            viewModel.items.removeAll { $0.itemId == deletedId }
+                        }
+                    }
+                )
+            }
+            .safeAreaInset(edge: .bottom) {
+                if viewModel.isSelectingMultiple && viewModel.selectedItemCount > 0 {
+                    HStack(spacing: AppSpacing.rowSpacing) {
+                        Text("\(viewModel.selectedItemCount) selected")
+                            .font(BrandFont.semiBold(15))
+                            .foregroundStyle(.gsTextPrimary)
+                        Spacer()
+                        Button(role: .destructive) {
+                            Task { await viewModel.bulkDelete() }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                                .font(BrandFont.semiBold(15))
+                                .foregroundStyle(.gsDanger)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, AppSpacing.screenPadding)
+                    .padding(.vertical, AppSpacing.rowSpacing)
+                    .background(.ultraThinMaterial)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.spring(duration: 0.35), value: viewModel.selectedItemCount)
+                } else if let undoItem = viewModel.undoableItem {
+                    HStack(spacing: AppSpacing.rowSpacing) {
+                        Text("Used \(undoItem.name)")
+                            .font(BrandFont.semiBold(15))
+                            .foregroundStyle(.gsTextPrimary)
+                            .lineLimit(1)
+                        Spacer()
+                        Button {
+                            Task { await viewModel.undoLastDelete() }
+                        } label: {
+                            Text("Undo")
+                                .font(BrandFont.semiBold(15))
+                                .foregroundStyle(.gsBrandPrimary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, AppSpacing.screenPadding)
+                    .padding(.vertical, AppSpacing.rowSpacing)
+                    .background(.ultraThinMaterial)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.spring(duration: 0.35), value: viewModel.undoableItem?.itemId)
+                }
             }
             .tint(.gsBrandPrimary)
             .alert("Reject item?", isPresented: $viewModel.showRejectReasonPrompt) {
@@ -254,20 +353,30 @@ struct PantryView: View {
                         spacing: AppSpacing.mediumSpacing
                     ) {
                         ForEach(viewModel.filteredItems) { item in
-                            PantryGridCard(
-                                item: item,
-                                confidence: viewModel.confidence(for: item),
-                                canModify: viewModel.canModifyItem(item),
-                                onTap: {
-                                    if viewModel.canModifyItem(item) {
-                                        viewModel.itemToEdit = item
-                                    }
-                                },
-                                onMarkFinished: { Task { await viewModel.markFinished(item) } },
-                                onMoreRemovalOptions: { viewModel.showRemovalOptions(for: item) },
-                                onHalve: { Task { await viewModel.halveItem(item) } },
-                                onDecrement: { Task { await viewModel.decrementItem(item) } }
-                            )
+                            ZStack(alignment: .topLeading) {
+                                PantryGridCard(
+                                    item: item,
+                                    confidence: viewModel.confidence(for: item),
+                                    canModify: !viewModel.isSelectingMultiple && viewModel.canModifyItem(item),
+                                    onTap: {
+                                        if viewModel.isSelectingMultiple {
+                                            viewModel.toggleSelection(item)
+                                        } else if viewModel.canModifyItem(item) {
+                                            viewModel.itemToEdit = item
+                                        }
+                                    },
+                                    onMarkFinished: { Task { await viewModel.markFinished(item) } },
+                                    onMoreRemovalOptions: { viewModel.showRemovalOptions(for: item) },
+                                    onHalve: { Task { await viewModel.halveItem(item) } },
+                                    onDecrement: { Task { await viewModel.decrementItem(item) } }
+                                )
+                                if viewModel.isSelectingMultiple {
+                                    Image(systemName: viewModel.selectedItemIds.contains(item.itemId) ? "checkmark.circle.fill" : "circle")
+                                        .font(BrandSymbolFont.symbol(20))
+                                        .foregroundStyle(viewModel.selectedItemIds.contains(item.itemId) ? .gsBrandPrimary : .gsTextSecondary)
+                                        .padding(6)
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, AppSpacing.screenPadding)
@@ -416,12 +525,6 @@ struct PantryView: View {
                         Label("Used", systemImage: "checkmark.circle")
                     }
                     .tint(.gsSuccess)
-                    Button {
-                        Task { await viewModel.halveItem(item) }
-                    } label: {
-                        Label("Half", systemImage: "divide")
-                    }
-                    .tint(.gsBrandPrimary)
                     Button {
                         Task { await viewModel.decrementItem(item) }
                     } label: {
@@ -577,6 +680,45 @@ private struct PantryGridCard: View {
                         }
                 }
                 .frame(height: 3)
+
+                // Quick action buttons
+                if canModify && item.isApproved {
+                    HStack(spacing: 0) {
+                        Button { onDecrement() } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(BrandSymbolFont.symbol(18))
+                                .foregroundStyle(.gsTextSecondary)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Decrease quantity")
+
+                        Button { onHalve() } label: {
+                            Image(systemName: "divide")
+                                .font(BrandSymbolFont.symbol(14))
+                                .foregroundStyle(.gsBrandPrimary)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Halve quantity")
+
+                        Button { onMarkFinished() } label: {
+                            Image(systemName: "checkmark.circle")
+                                .font(BrandSymbolFont.symbol(18))
+                                .foregroundStyle(.gsSuccess)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Mark as used")
+                    }
+                    .padding(.top, AppSpacing.compactGap)
+                }
             }
             .padding(AppSpacing.rowSpacing)
             .background(Color.gsSurface)
@@ -684,6 +826,14 @@ private struct PantryFilterChips: View {
                     viewModel.selectedLocationFilter = .all
                 }
 
+                // Clear chip (visible only when filters are active)
+                if viewModel.selectedAttention != .none || viewModel.selectedLocationFilter != .all {
+                    chipButton(label: "Clear", isSelected: false, color: .gsTextSecondary) {
+                        viewModel.selectedAttention = .none
+                        viewModel.selectedLocationFilter = .all
+                    }
+                }
+
                 // Expiring chip
                 if viewModel.pantryExpiringAttentionCount > 0 {
                     chipButton(
@@ -712,6 +862,21 @@ private struct PantryFilterChips: View {
                             viewModel.selectedAttention = .none
                         } else {
                             viewModel.selectedAttention = .lowStock
+                        }
+                    }
+                }
+
+                if !viewModel.pendingApprovalItems.isEmpty && viewModel.isAdmin {
+                    chipButton(
+                        label: "\(viewModel.pendingApprovalItems.count) pending",
+                        isSelected: viewModel.selectedAttention == .pending,
+                        color: .gsWarning,
+                        showDot: true
+                    ) {
+                        if viewModel.selectedAttention == .pending {
+                            viewModel.setAttention(.none)
+                        } else {
+                            viewModel.setAttention(.pending)
                         }
                     }
                 }

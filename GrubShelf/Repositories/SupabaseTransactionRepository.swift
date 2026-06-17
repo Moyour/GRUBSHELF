@@ -21,12 +21,11 @@ final class SupabaseTransactionRepository: TransactionRepository {
 
     func fetchByDateRange(householdId: UUID, start: Date, end: Date) async throws -> [Transaction] {
         return try await withRetry { [client] in
-            let formatter = ISO8601DateFormatter()
             return try await client.from("transactions")
                 .select()
                 .eq("household_id", value: householdId.uuidString)
-                .gte("purchase_date", value: formatter.string(from: start))
-                .lte("purchase_date", value: formatter.string(from: end))
+                .gte("purchase_date", value: ISO8601DateFormatter.shared.string(from: start))
+                .lte("purchase_date", value: ISO8601DateFormatter.shared.string(from: end))
                 .execute()
                 .value
         }

@@ -32,9 +32,9 @@ final class GroceryCatalogSearchViewModel {
 
             isSearching = true
             do {
-                let items = try await repository.search(query: query, limit: 20)
+                let raw = try await repository.search(query: query, limit: 20)
                 guard !Task.isCancelled else { return }
-                results = items
+                results = GroceryCatalogSearchRanker.suggestions(from: raw, query: query, limit: 20)
                 errorMessage = nil
             } catch {
                 guard !Task.isCancelled else { return }

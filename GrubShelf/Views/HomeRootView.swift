@@ -7,6 +7,7 @@ struct HomeRootView: View {
     @Bindable var financeVM: FinanceViewModel
     @Bindable var profileVM: ProfileViewModel
     @Bindable var shoppingListsVM: ShoppingListsViewModel
+    var authService: AuthenticationService?
 
     @State private var showDashboardPantryReview = false
     @State private var showReviewSheet = false
@@ -14,6 +15,7 @@ struct HomeRootView: View {
     @State private var lastFeedSyncedAt: Date?
     @AppStorage("GrubShelf.feedColdStartDismissed") private var coldStartDismissed = false
 
+    let onReviewPendingApprovals: () -> Void
     let onNavigateToInsights: () -> Void
     let onNavigateToShopping: () -> Void
     let onOpenPantryTab: (PantryNavigationFocus?) -> Void
@@ -35,7 +37,7 @@ struct HomeRootView: View {
     }
 
     private var newestItems: [PantryItem] {
-        pantryVM.items
+        pantryVM.approvedItems
             .sorted { $0.createdAt > $1.createdAt }
             .prefix(4)
             .map { $0 }
@@ -116,7 +118,7 @@ struct HomeRootView: View {
                 }
             }
             .refreshable {
-                await dashboardVM.loadData(forceRefresh: true)
+                await dashboardVM.loadData(forceRefresh: true, authService: authService)
                 await financeVM.loadData(forceRefresh: true)
                 await pantryVM.loadItems(forceRefresh: true)
                 await profileVM.loadData(forceRefresh: true)
@@ -124,7 +126,7 @@ struct HomeRootView: View {
                 lastFeedSyncedAt = .now
             }
             .task {
-                async let dash: Void = dashboardVM.loadData()
+                async let dash: Void = dashboardVM.loadData(authService: authService)
                 async let fin: Void = financeVM.loadData()
                 async let pant: Void = pantryVM.loadItems()
                 async let prof: Void = profileVM.loadData()
@@ -182,6 +184,7 @@ struct HomeRootView: View {
                     repository: pantryVM.repository,
                     householdId: pantryVM.householdId,
                     userId: pantryVM.userId,
+                    userRole: pantryVM.userRole,
                     existingItem: item
                 ))
             }
@@ -197,7 +200,12 @@ struct HomeRootView: View {
             }
             .sheet(isPresented: $showExpiryCalendar) {
                 NavigationStack {
-                    ExpiryCalendarView(items: dashboardVM.expiringItems)
+                    ExpiryCalendarView(
+                        items: dashboardVM.expiringItems,
+                        householdId: pantryVM.householdId,
+                        userId: pantryVM.userId,
+                        userRole: pantryVM.userRole
+                    )
                         .navigationTitle("Expiring")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
@@ -233,13 +241,17 @@ struct HomeRootView: View {
                     onLogPurchase: onLogPurchase
                 )
 
+                if dashboardVM.isAdmin && dashboardVM.pendingApprovalsCount > 0 {
+                    PendingApprovalsCard(count: dashboardVM.pendingApprovalsCount) {
+                        onReviewPendingApprovals()
+                    }
+                    .padding(.horizontal, AppSpacing.screenPadding)
+                }
+
                 if showColdStartGuide {
                     ColdStartGuideCard(
                         pantryItemCount: dashboardVM.totalPantryItems,
-                        onAddItem: { pantryVM.showAddSheet = true },
                         onGoShop: onNavigateToShopping,
-                        onExpense: onNavigateToInsights,
-                        onOpenProfile: onOpenProfile,
                         onDismiss: { coldStartDismissed = true }
                     )
                     .padding(.horizontal, AppSpacing.screenPadding)
@@ -288,8 +300,8 @@ struct HomeRootView: View {
     }
 
     private var lowStockSampleNames: [String] {
-        pantryVM.items
-            .filter { !$0.archived && $0.state == .lowStock }
+        pantryVM.approvedItems
+            .filter { $0.state == .lowStock }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .prefix(3)
             .map(\.name)
@@ -418,10 +430,7 @@ private struct FeedActivityCard: View {
 
 private struct ColdStartGuideCard: View {
     let pantryItemCount: Int
-    let onAddItem: () -> Void
     let onGoShop: () -> Void
-    let onExpense: () -> Void
-    let onOpenProfile: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -435,36 +444,20 @@ private struct ColdStartGuideCard: View {
                     .font(BrandFont.semiBold(16))
                     .foregroundStyle(.gsBrandPrimary)
             }
-            Text("You have \(pantryItemCount) pantry item\(pantryItemCount == 1 ? "" : "s"). Add more, plan shopping, or track spending.")
+            Text("Start with a shopping list. Your pantry fills itself after you shop.")
                 .font(BrandFont.regular(16))
                 .foregroundStyle(.gsTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: AppSpacing.compactGap) {
-                Button(action: onAddItem) {
-                    Label("Add pantry item", systemImage: "plus.circle.fill")
-                        .font(BrandFont.semiBold(17))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.borderedProminent)
-                Button(action: onGoShop) {
-                    Label("Open Shop", systemImage: "cart.fill")
-                        .font(BrandFont.semiBold(17))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                Button(action: onExpense) {
-                    Label("Expense insights", systemImage: "chart.bar.fill")
-                        .font(BrandFont.semiBold(17))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                Button(action: onOpenProfile) {
-                    Label("Household & profile", systemImage: "person.2.fill")
-                        .font(BrandFont.semiBold(17))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
+            Button(action: onGoShop) {
+                Label("Create a shopping list", systemImage: "cart.fill")
+                    .font(BrandFont.semiBold(17))
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.borderedProminent)
+            Text("You can also add items, log expenses, or manage your household from the tabs below.")
+                .font(BrandFont.regular(14))
+                .foregroundStyle(.gsTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(AppSpacing.cardPadding)
         .dashboardCardSurface()

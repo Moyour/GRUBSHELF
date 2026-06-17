@@ -8,13 +8,38 @@ struct GrubShelfApp: App {
     init() {
         BundledFontRegistration.ensureBrandFontsLoaded()
 
-        // Migration: existing users who already completed onboarding should skip
-        // the new post-onboarding setup screen. If they've seen the feature tour
-        // but the setup key doesn't exist yet, they're an existing user — auto-skip.
+        // Migration: existing users skip the stock-up flow (they already have items).
+        let stockUpKey = "hasCompletedStockUp"
+        if UserDefaults.standard.object(forKey: stockUpKey) == nil
+            && UserDefaults.standard.bool(forKey: "hasSeenFeatureOnboarding") {
+            UserDefaults.standard.set(true, forKey: stockUpKey)
+        }
+
+        // Migration: existing users skip the post-onboarding setup screen.
         let setupKey = "hasCompletedPostOnboardingSetup"
         if UserDefaults.standard.object(forKey: setupKey) == nil
             && UserDefaults.standard.bool(forKey: "hasSeenFeatureOnboarding") {
             UserDefaults.standard.set(true, forKey: setupKey)
+        }
+
+        // Migration: auto-skip legacy onboarding screens (feature tour + premium intro)
+        // for all users — these screens are no longer part of the startup flow.
+        UserDefaults.standard.set(true, forKey: "hasSeenFeatureOnboarding")
+        UserDefaults.standard.set(true, forKey: "hasSeenPremiumIntro")
+
+        // Migration: existing users who already onboarded should never see the
+        // post-OAuth name gate (it's only for new OAuth sign-ups with bad names).
+        let nameGateKey = "hasCompletedNameGate"
+        if UserDefaults.standard.object(forKey: nameGateKey) == nil
+            && UserDefaults.standard.bool(forKey: "hasSeenFeatureOnboarding") {
+            UserDefaults.standard.set(true, forKey: nameGateKey)
+        }
+
+        // Migration: existing users skip the notification permission onboarding screen.
+        let notifSetupKey = "hasCompletedNotificationSetup"
+        if UserDefaults.standard.object(forKey: notifSetupKey) == nil
+            && UserDefaults.standard.bool(forKey: "hasSeenFeatureOnboarding") {
+            UserDefaults.standard.set(true, forKey: notifSetupKey)
         }
     }
 
@@ -24,7 +49,11 @@ struct GrubShelfApp: App {
     @State private var showAcceptInviteSheet = false
     @State private var networkMonitor = NetworkMonitor.shared
     @AppStorage("hasSeenFeatureOnboarding") private var hasSeenFeatureOnboarding = false
+    @AppStorage("hasSeenPremiumIntro") private var hasSeenPremiumIntro = false
     @AppStorage("hasCompletedPostOnboardingSetup") private var hasCompletedSetup = false
+    @AppStorage("hasCompletedNameGate") private var hasCompletedNameGate = false
+    @AppStorage("hasCompletedStockUp") private var hasCompletedStockUp = false
+    @AppStorage("hasCompletedNotificationSetup") private var hasCompletedNotificationSetup = false
     @AppStorage("appearance") private var appearanceRaw: String = AppAppearance.system.rawValue
     @Environment(\.scenePhase) private var scenePhase
 
@@ -40,10 +69,6 @@ struct GrubShelfApp: App {
                         .ignoresSafeArea()
                 } else if authService.mustCompletePasswordReset {
                     CompletePasswordResetView(authService: authService)
-                } else if !hasSeenFeatureOnboarding {
-                    FeatureOnboardingView {
-                        hasSeenFeatureOnboarding = true
-                    }
                 } else if authService.pendingVerificationEmail != nil {
                     EmailVerificationView(authService: authService)
                 } else if authService.pendingPasswordResetEmail != nil {
@@ -60,6 +85,8 @@ struct GrubShelfApp: App {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(.gsBackground)
+                } else if !hasCompletedNameGate && !authService.didProvideNameManually {
+                    NameGateView(authService: authService, hasCompletedNameGate: $hasCompletedNameGate)
                 } else if authService.currentUser?.householdId == nil && (pendingInviteToken != nil || !authService.pendingInvitesToAccept.isEmpty) {
                     // User is authenticated with a pending invite but no household yet - show loading
                     VStack(spacing: AppSpacing.mediumSpacing) {
@@ -72,14 +99,29 @@ struct GrubShelfApp: App {
                     .background(.gsBackground)
                 } else if authService.currentUser?.householdId == nil {
                     CreateHouseholdView(authService: authService)
-                } else if let user = authService.currentUser, let hid = user.householdId, shouldShowPostOnboardingSetup(for: user) {
-                    PostOnboardingSetupView(
+                } else if let user = authService.currentUser, let hid = user.householdId, !hasCompletedStockUp {
+                    StockUpFlowView(
                         householdId: hid,
                         userId: user.userId,
                         userRole: user.role,
-                        isOwner: user.isOwner,
                         onContinue: {
+                            hasCompletedStockUp = true
                             hasCompletedSetup = true
+                        }
+                    )
+                } else if !hasCompletedNotificationSetup {
+                    NotificationPermissionPrimerView(
+                        onEnable: {
+                            hasCompletedNotificationSetup = true
+                            Task {
+                                await NotificationService.shared.requestPermissionAfterPrimer(
+                                    application: UIApplication.shared
+                                )
+                            }
+                        },
+                        onSkip: {
+                            NotificationService.shared.markPermissionPrimerShown()
+                            hasCompletedNotificationSetup = true
                         }
                     )
                 } else if let user = authService.currentUser, let hid = user.householdId {
@@ -127,6 +169,12 @@ struct GrubShelfApp: App {
                 switch deepLink {
                 case .invite(let token):
                     handleInviteDeepLink(token: token)
+                case .pantry(let destination):
+                    NotificationService.postNavigationNotification(for: destination)
+                case .shopping:
+                    NotificationService.postNavigationNotification(for: .shop)
+                case .approvals:
+                    NotificationService.postNavigationNotification(for: .approvals)
                 case .unknown:
                     break
                 }
@@ -168,6 +216,7 @@ struct GrubShelfApp: App {
                        let user = authService.currentUser,
                        let householdId = user.householdId {
                         NotificationContextStore.save(householdId: householdId, userId: user.userId)
+                        BetaTelemetryService.shared.logDay7OpenIfApplicable(accountCreatedAt: user.createdAt)
                         Task {
                             await ShoppingListWidgetToggleQueueFlush.run(householdId: householdId)
                             await NotificationDataLoader.scheduleNotifications(
@@ -181,19 +230,11 @@ struct GrubShelfApp: App {
         }
     }
 
-    /// Post-onboarding setup is for new household creators (admin/owner), not joining members.
-    private func shouldShowPostOnboardingSetup(for user: AppUser) -> Bool {
-        guard !hasCompletedSetup else { return false }
-        let context = HouseholdPermissionContext(user: user)
-        let isHouseholdManager = PermissionService.canPerform(.manageMembers, context: context)
-            || PermissionService.canPerform(.createShoppingList, context: context)
-        return isHouseholdManager
-    }
-
-    /// Returning users with a household skip the pre-login feature tour.
+    /// Returning users with a household skip the pre-login feature tour and premium intro.
     private func applyOnboardingSkipForReturningHouseholdUser() {
         guard authService.currentUser?.householdId != nil else { return }
         hasSeenFeatureOnboarding = true
+        hasSeenPremiumIntro = true
     }
 
     /// Members and guests who already belong to a household skip first-time setup.
@@ -205,6 +246,9 @@ struct GrubShelfApp: App {
         if !isHouseholdManager {
             hasCompletedSetup = true
             hasSeenFeatureOnboarding = true
+            hasSeenPremiumIntro = true
+            hasCompletedNameGate = true
+            hasCompletedNotificationSetup = true
         }
     }
 
@@ -241,6 +285,9 @@ struct GrubShelfApp: App {
             
             hasCompletedSetup = true
             hasSeenFeatureOnboarding = true
+            hasSeenPremiumIntro = true
+            hasCompletedNameGate = true
+            hasCompletedNotificationSetup = true
 
             ToastManager.shared.show("Invitation accepted! Welcome to the household.", style: .success)
         } catch {
@@ -252,8 +299,9 @@ struct GrubShelfApp: App {
 // MARK: - Notification Delegate
 
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, UIApplicationDelegate {
+    private static let logger = Logger(subsystem: "com.grubshelf", category: "NotificationDelegate")
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        BundledFontRegistration.ensureBrandFontsLoaded()
         UNUserNotificationCenter.current().delegate = self
         NotificationRefreshCoordinator.registerBackgroundTask()
         registerNotificationCategories()
@@ -267,7 +315,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, UI
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        // Expected on simulator or when push capability isn't provisioned yet.
+        Self.logger.warning("Failed to register for remote notifications: \(error.localizedDescription, privacy: .public)")
     }
 
     private func registerNotificationCategories() {

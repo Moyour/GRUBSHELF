@@ -4,8 +4,14 @@ struct InsightsView: View {
     @State var insightsVM: InsightsViewModel
     @State var financeVM: FinanceViewModel
     var canEditBudget: Bool = true
+    var pantryRepository: PantryRepository?
+    var userRole: UserRole = .member
     @State private var showBudgetSettings = false
     @State private var showLogPurchaseSheet = false
+    @State private var isExporting = false
+    @State private var exportFileURL: URL?
+    @State private var showExportSheet = false
+    @Environment(\.featureGateService) private var featureGateService
 
     var body: some View {
         NavigationStack {
@@ -31,14 +37,31 @@ struct InsightsView: View {
                             accessibilityHint: "Add a purchase manually",
                             action: { showLogPurchaseSheet = true }
                         )
-                        PrimaryToolbarIconButton(
-                            systemImage: "gearshape.circle",
-                            accessibilityLabel: canEditBudget ? "Budget and currency settings" : "View budget settings",
-                            accessibilityHint: canEditBudget
-                                ? "Change budget, period, and currency"
-                                : "View household budget settings (admin can edit)",
-                            action: { showBudgetSettings = true }
-                        )
+                        Menu {
+                            Button {
+                                showBudgetSettings = true
+                            } label: {
+                                Label(canEditBudget ? "Budget settings" : "View budget", systemImage: "gearshape")
+                            }
+                            Divider()
+                            Button {
+                                guard featureGateService?.requireFeature(.exportReports) != false else { return }
+                                Task { await exportData(format: .csv) }
+                            } label: {
+                                Label("Export CSV", systemImage: "tablecells")
+                            }
+                            Button {
+                                guard featureGateService?.requireFeature(.exportReports) != false else { return }
+                                Task { await exportData(format: .json) }
+                            } label: {
+                                Label("Export JSON", systemImage: "doc.text")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(BrandSymbolFont.symbol(17, weight: .semibold))
+                                .foregroundStyle(.gsBrandPrimary)
+                        }
+                        .accessibilityLabel("Expense options")
                     }
                 }
             }
@@ -50,7 +73,12 @@ struct InsightsView: View {
             .sheet(isPresented: $showLogPurchaseSheet, onDismiss: {
                 Task { await financeVM.loadData(forceRefresh: true) }
             }) {
-                LogPurchaseSheet(financeVM: financeVM)
+                ReceiptFlowSheet(
+                    financeVM: financeVM,
+                    pantryRepository: pantryRepository,
+                    userRole: userRole
+                )
+                .environment(\.featureGateService, featureGateService)
             }
             .alert("Add trip cost", isPresented: .init(
                 get: { financeVM.tripToLog != nil },
@@ -69,7 +97,36 @@ struct InsightsView: View {
                     Text("How much did you spend on \(trip.date.formatted(date: .abbreviated, time: .omitted))?")
                 }
             }
+            .sheet(isPresented: $showExportSheet) {
+                if let url = exportFileURL {
+                    ExportShareSheet(fileURL: url)
+                }
+            }
+            .overlay {
+                if isExporting {
+                    ProgressView("Exporting...")
+                        .tint(.gsBrandPrimary)
+                        .foregroundStyle(.gsTextPrimary)
+                        .padding(AppSpacing.cardPadding)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AppSpacing.buttonRadius))
+                }
+            }
             .tint(.gsBrandPrimary)
+        }
+    }
+
+    private func exportData(format: ExportFormat) async {
+        isExporting = true
+        defer { isExporting = false }
+
+        do {
+            exportFileURL = try await DataExportService.exportToFile(format: format, householdId: financeVM.householdId)
+            showExportSheet = true
+        } catch {
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "export data"),
+                style: .error
+            )
         }
     }
 

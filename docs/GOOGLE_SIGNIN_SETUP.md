@@ -47,7 +47,11 @@ If using `supabase start` for local development:
 ## 4. GrubShelf App
 
 1. Open `GrubShelf/Config.plist`
-2. Replace `YOUR_GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com` with your **iOS Client ID** from step 1b above.
+2. Set **both** keys:
+   - `GOOGLE_CLIENT_ID` — **iOS** client ID from step 1b
+   - `GOOGLE_WEB_CLIENT_ID` — **Web** client ID from step 1a (required for Supabase; passed to Google as `serverClientID` so the id_token audience is the web client)
+
+The app configures `GIDConfiguration(clientID: ios, serverClientID: web)`. Without `GOOGLE_WEB_CLIENT_ID`, Supabase returns **Unacceptable audience in id_token**.
 
 ## 5. URL Scheme (Optional for some flows)
 
@@ -61,6 +65,17 @@ If you encounter redirect issues, add a URL scheme to your app:
 
    The reversed client ID is the iOS client ID with the domain reversed:  
    `123456789-yyy.apps.googleusercontent.com` → `com.googleusercontent.apps.123456789-yyy`
+
+## 6. OAuth consent screen app name
+
+The name shown on Google’s sign-in screen (e.g. “Continue to **Pantry**”) comes from **Google Cloud**, not `Config.plist`.
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services** → **OAuth consent screen**
+2. Click **Edit app**
+3. Set **App name** to **GrubShelf** (and update **App logo** / support email if needed)
+4. **Save**
+
+Changes can take a few minutes to appear. The iOS app also sets `CFBundleDisplayName` to `GrubShelf` for the home screen and system UI.
 
 ## Troubleshooting
 

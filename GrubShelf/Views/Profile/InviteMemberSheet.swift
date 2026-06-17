@@ -3,17 +3,17 @@ import SwiftUI
 struct InviteMemberSheet: View {
     @State private var email = ""
     @State private var validationError: String?
+    @State private var isSending = false
     @Environment(\.dismiss) private var dismiss
 
-    let onInvite: (String) -> Void
+    let onInvite: (String) async -> Void
 
     private var trimmedEmail: String {
         email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private var isValid: Bool {
-        let pattern = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
-        return trimmedEmail.range(of: pattern, options: .regularExpression) != nil
+        trimmedEmail.isValidEmail
     }
 
     var body: some View {
@@ -28,7 +28,7 @@ struct InviteMemberSheet: View {
                         .font(BrandFont.semiBold(18))
                         .foregroundStyle(.gsTextPrimary)
 
-                    Text("Enter the email they’ll use in GrubShelf. We’ll email them an invitation, and they can accept it in the app after signing in with that address.")
+                    Text("Enter the email they'll use in GrubShelf. We'll email them an invitation, and they can accept it in the app after signing in with that address.")
                         .font(BrandFont.regular(14))
                         .foregroundStyle(.gsTextSecondary)
                         .multilineTextAlignment(.center)
@@ -50,6 +50,7 @@ struct InviteMemberSheet: View {
                             RoundedRectangle(cornerRadius: AppSpacing.buttonRadius)
                                 .stroke(validationError != nil ? .gsDanger : .gsBorder, lineWidth: 1)
                         )
+                        .disabled(isSending)
 
                     if let error = validationError {
                         Text(error)
@@ -62,14 +63,21 @@ struct InviteMemberSheet: View {
                 Button {
                     validate()
                 } label: {
-                    Text("Send invite")
-                        .font(BrandFont.semiBold(17))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: AppSpacing.minTouchTarget)
+                    Group {
+                        if isSending {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Text("Send invite")
+                        }
+                    }
+                    .font(BrandFont.semiBold(17))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: AppSpacing.minTouchTarget)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.gsBrandPrimary)
-                .disabled(trimmedEmail.isEmpty)
+                .disabled(trimmedEmail.isEmpty || isSending)
                 .padding(.horizontal, AppSpacing.screenPadding)
 
                 Spacer()
@@ -79,8 +87,10 @@ struct InviteMemberSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(isSending)
                 }
             }
+            .interactiveDismissDisabled(isSending)
             .tint(.gsBrandPrimary)
         }
     }
@@ -91,6 +101,10 @@ struct InviteMemberSheet: View {
             return
         }
         validationError = nil
-        onInvite(trimmedEmail)
+        isSending = true
+        Task {
+            await onInvite(trimmedEmail)
+            isSending = false
+        }
     }
 }

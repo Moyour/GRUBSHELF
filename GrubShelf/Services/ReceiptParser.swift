@@ -7,6 +7,11 @@ enum ReceiptParser {
         "SUBTOTAL", "FINAL TOTAL", "TOTAL PAYABLE"
     ]
 
+    private static let discountPatterns = [
+        "DISCOUNT", "COUPON", "SAVINGS", "VOUCHER", "PROMO",
+        "MEMBER DISCOUNT", "LOYALTY", "REBATE", "REDUCTION"
+    ]
+
     private static let priceRegex = try? NSRegularExpression(
         pattern: #"[\d,]+\.?\d*\s*[£$€]|[\£$€]\s*[\d,]+\.?\d*|[\d,]+\.\d{2}"#,
         options: []
@@ -38,6 +43,7 @@ enum ReceiptParser {
         var totalMinor: Int?
         var items: [ParsedReceiptItem] = []
         var itemLines: [(String, Int?)] = []
+        var discountMinor: Int = 0
 
         for (index, line) in rawLines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -62,6 +68,13 @@ enum ReceiptParser {
                 totalMinor = price
             }
 
+            // Discount lines: accumulate and skip from items
+            if discountPatterns.contains(where: { upper.contains($0) }),
+               let price = extractPriceMinor(trimmed) {
+                discountMinor += price
+                continue
+            }
+
             // Item line: typically "Name  £X.XX" or "Name  Qty  £X.XX"
             if !totalPatterns.contains(where: { upper.contains($0) }),
                !["CASH", "CARD", "CHANGE", "THANK", "RECEIPT"].contains(where: { upper.contains($0) }) {
@@ -71,6 +84,11 @@ enum ReceiptParser {
                     itemLines.append((namePart, price))
                 }
             }
+        }
+
+        // Subtract accumulated discounts from the total
+        if discountMinor > 0, let total = totalMinor {
+            totalMinor = max(total - discountMinor, 0)
         }
 
         // Build items from item lines
@@ -127,13 +145,34 @@ enum ReceiptParser {
     }
 
     private static func extractQuantity(from name: String) -> Double? {
-        // "Milk x2" or "Bread 2" at end
-        if let xRange = name.range(of: #"x\s*\d+(?:\.\d+)?\s*$"#, options: .regularExpression) {
+        // "2x Milk" or "2X Milk" — leading quantity with x/X
+        if let leadRange = name.range(of: #"^\d+(?:\.\d+)?\s*[xX]\s+"#, options: .regularExpression) {
+            let prefix = String(name[leadRange])
+                .replacingOccurrences(of: "x", with: "", options: .caseInsensitive)
+                .trimmingCharacters(in: .whitespaces)
+            return Double(prefix)
+        }
+        // "QTY 3" or "QTY: 3" — QTY prefix
+        if let qtyRange = name.range(of: #"(?i)QTY\s*:?\s*(\d+(?:\.\d+)?)"#, options: .regularExpression) {
+            let match = String(name[qtyRange])
+            let digits = match.replacingOccurrences(of: #"(?i)QTY\s*:?\s*"#, with: "", options: .regularExpression)
+            return Double(digits)
+        }
+        // "2 @ $3.99" — quantity-at-price
+        if let atRange = name.range(of: #"(\d+(?:\.\d+)?)\s*@\s*"#, options: .regularExpression) {
+            let match = String(name[atRange])
+                .replacingOccurrences(of: "@", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            return Double(match)
+        }
+        // "Milk X2" or "Milk x2" — trailing uppercase/lowercase X
+        if let xRange = name.range(of: #"[xX]\s*\d+(?:\.\d+)?\s*$"#, options: .regularExpression) {
             let suffix = String(name[xRange])
-                .replacingOccurrences(of: "x", with: "")
+                .replacingOccurrences(of: "X", with: "", options: .caseInsensitive)
                 .trimmingCharacters(in: .whitespaces)
             return Double(suffix)
         }
+        // "Bread 2" — trailing bare number
         if let numRange = name.range(of: #"\s+\d+(?:\.\d+)?\s*$"#, options: .regularExpression) {
             let suffix = String(name[numRange]).trimmingCharacters(in: .whitespaces)
             return Double(suffix)
@@ -143,10 +182,23 @@ enum ReceiptParser {
 
     private static func cleanItemName(_ name: String) -> String {
         var s = name
-        // Remove trailing "x N"
-        if let range = s.range(of: #"x\s*\d+(?:\.\d+)?\s*$"#, options: .regularExpression) {
+        // Remove leading "2x " or "2X "
+        if let range = s.range(of: #"^\d+(?:\.\d+)?\s*[xX]\s+"#, options: .regularExpression) {
+            s = String(s[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        // Remove "QTY 3" or "QTY: 3"
+        if let range = s.range(of: #"(?i)QTY\s*:?\s*\d+(?:\.\d+)?"#, options: .regularExpression) {
+            s = String(s[..<range.lowerBound] + s[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        // Remove "N @ $price" (quantity-at-price)
+        if let range = s.range(of: #"\d+(?:\.\d+)?\s*@\s*[£$€]?\d[\d,.]*"#, options: .regularExpression) {
+            s = String(s[..<range.lowerBound] + s[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        // Remove trailing "X2" or "x2"
+        if let range = s.range(of: #"[xX]\s*\d+(?:\.\d+)?\s*$"#, options: .regularExpression) {
             s = String(s[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
         }
+        // Remove trailing bare number
         if let range = s.range(of: #"\s+\d+(?:\.\d+)?\s*$"#, options: .regularExpression) {
             s = String(s[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
         }

@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 struct DashboardViewModelTests {
     private let householdId = UUID()
+    private let userId = UUID()
 
     private func makeItem(
         state: ItemState,
@@ -68,7 +69,8 @@ struct DashboardViewModelTests {
         let vm = DashboardViewModel(
             pantryRepository: pantryRepo,
             shoppingRepository: shoppingRepo,
-            householdId: householdId
+            householdId: householdId,
+            userId: userId
         )
 
         await vm.loadData()
@@ -94,7 +96,8 @@ struct DashboardViewModelTests {
         let vm = DashboardViewModel(
             pantryRepository: pantryRepo,
             shoppingRepository: shoppingRepo,
-            householdId: householdId
+            householdId: householdId,
+            userId: userId
         )
 
         await vm.loadData()
@@ -105,7 +108,8 @@ struct DashboardViewModelTests {
         let vm = DashboardViewModel(
             pantryRepository: MockPantryRepository(),
             shoppingRepository: MockShoppingRepository(),
-            householdId: householdId
+            householdId: householdId,
+            userId: userId
         )
         #expect(vm.completionPercentage == 0)
     }
@@ -114,7 +118,8 @@ struct DashboardViewModelTests {
         let vm = DashboardViewModel(
             pantryRepository: MockPantryRepository(),
             shoppingRepository: MockShoppingRepository(),
-            householdId: householdId
+            householdId: householdId,
+            userId: userId
         )
         #expect(!vm.overviewHeadline.isEmpty)
     }
@@ -138,7 +143,8 @@ struct DashboardViewModelTests {
         let vm = DashboardViewModel(
             pantryRepository: pantryRepo,
             shoppingRepository: shoppingRepo,
-            householdId: householdId
+            householdId: householdId,
+            userId: userId
         )
 
         await vm.loadData()

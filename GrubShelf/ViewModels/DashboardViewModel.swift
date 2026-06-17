@@ -18,6 +18,7 @@ final class DashboardViewModel {
     var activeItemCount = 0
     var isLoading = false
     var hasLoaded = false
+    var pendingApprovalsCount = 0
 
     // Activity metrics
     var mostPurchasedItem: String?
@@ -35,6 +36,11 @@ final class DashboardViewModel {
     private let transactionRepository: TransactionRepository
     private let wasteEventRepository: WasteEventRepository
     let householdId: UUID
+    let userId: UUID
+    let userRole: UserRole
+    private let approvalService: ApprovalService
+
+    var isAdmin: Bool { userRole == .admin }
 
     /// Single neutral headline for the home overview (no time-of-day greeting).
     var overviewHeadline: String {
@@ -107,16 +113,61 @@ final class DashboardViewModel {
         shoppingRepository: ShoppingRepository,
         transactionRepository: TransactionRepository = SupabaseTransactionRepository(),
         wasteEventRepository: WasteEventRepository = SupabaseWasteEventRepository(),
-        householdId: UUID
+        householdId: UUID,
+        userId: UUID,
+        userRole: UserRole = .member,
+        approvalService: ApprovalService = ApprovalService()
     ) {
         self.pantryRepository = pantryRepository
         self.shoppingRepository = shoppingRepository
         self.transactionRepository = transactionRepository
         self.wasteEventRepository = wasteEventRepository
         self.householdId = householdId
+        self.userId = userId
+        self.userRole = userRole
+        self.approvalService = approvalService
     }
 
-    func loadData(forceRefresh: Bool = false) async {
+    private static func pendingCount(pantry: [PantryItem], shopping: [ShoppingItem]) -> Int {
+        pantry.filter { $0.approvalStatus == .pending }.count
+            + shopping.filter { $0.approvalStatus == .pending }.count
+    }
+
+    func syncPendingApprovalsCount(pantryItems: [PantryItem], shoppingItems: [ShoppingItem]) {
+        guard isAdmin else {
+            pendingApprovalsCount = 0
+            return
+        }
+        pendingApprovalsCount = Self.pendingCount(pantry: pantryItems, shopping: shoppingItems)
+    }
+
+    func loadData(forceRefresh: Bool = false, authService: AuthenticationService? = nil) async {
+        do {
+            try await loadDataInternal(forceRefresh: forceRefresh)
+        } catch {
+            guard isAuthenticationError(error), let authService else { return }
+            Self.dashboard.info("Detected auth error, attempting session refresh...")
+            do {
+                try await authService.refreshSession()
+                try await loadDataInternal(forceRefresh: true)
+                ToastManager.shared.show("Session refreshed", style: .success)
+            } catch {
+                Self.dashboard.error("Session refresh failed: \(error.localizedDescription)")
+                ToastManager.shared.show("Please sign out and back in", style: .error)
+            }
+        }
+    }
+
+    private func isAuthenticationError(_ error: Error) -> Bool {
+        let description = error.localizedDescription.lowercased()
+        return description.contains("jwt")
+            || description.contains("token")
+            || description.contains("401")
+            || description.contains("authentication")
+            || description.contains("unauthorized")
+    }
+
+    private func loadDataInternal(forceRefresh: Bool) async throws {
         if !forceRefresh, let lastLoadedAt, Date.now.timeIntervalSince(lastLoadedAt) < Self.cacheTTL {
             return
         }
@@ -124,7 +175,9 @@ final class DashboardViewModel {
         do {
             async let pantryFetch = pantryRepository.fetchAll(householdId: householdId)
             async let shoppingFetch = shoppingRepository.fetchAll(householdId: householdId)
-            let (pantryItems, shoppingItems) = try await (pantryFetch, shoppingFetch)
+            let (allPantryItems, allShoppingItems) = try await (pantryFetch, shoppingFetch)
+            let pantryItems = allPantryItems.filter { $0.approvalStatus == .approved }
+            let shoppingItems = allShoppingItems.filter { $0.approvalStatus == .approved }
 
             totalPantryItems = pantryItems.count
             categoriesCount = Set(pantryItems.map(\.category)).count
@@ -143,25 +196,27 @@ final class DashboardViewModel {
             shoppingTotal = shoppingItems.count
             shoppingCompleted = shoppingItems.filter(\.completed).count
 
-            // Activity metrics (best-effort, don't block dashboard)
-            await loadActivityMetrics(pantryItems: pantryItems)
-
-            // Auto-archive expired items if enabled
-            autoArchiveExpiredItems(pantryItems)
-
-            // Schedule local notifications
-            NotificationService.shared.scheduleExpiryAlerts(items: pantryItems)
-            NotificationService.shared.scheduleLowStockAlerts(items: pantryItems)
-            NotificationService.shared.scheduleUsageReminders(items: pantryItems)
-        } catch {
-            switch ErrorHandler.classify(error) {
-            case .networkFailure:
-                ToastManager.shared.show("You’re offline—we’re showing what we saved last time", style: .error)
-            case .serverError:
-                ToastManager.shared.show("Can’t reach the server right now", style: .error)
-            default:
-                ToastManager.shared.show("Couldn’t refresh your overview", style: .error)
+            if isAdmin {
+                pendingApprovalsCount = Self.pendingCount(
+                    pantry: allPantryItems,
+                    shopping: allShoppingItems
+                )
+                if let counts = try? await approvalService.fetchPendingCounts(householdId: householdId) {
+                    pendingApprovalsCount = counts.total
+                }
+            } else {
+                pendingApprovalsCount = 0
             }
+
+            await loadActivityMetrics(pantryItems: pantryItems)
+            autoArchiveExpiredItems(pantryItems)
+        } catch {
+            Self.dashboard.error("Dashboard load failed: \(error.localizedDescription)")
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "refresh your overview"),
+                style: .error
+            )
+            throw error
         }
         isLoading = false
         hasLoaded = true

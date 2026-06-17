@@ -5,6 +5,7 @@ struct EmailVerificationView: View {
 
     @State private var code = ""
     @State private var resendCooldown = 0
+    @State private var lastSubmittedCode = ""
     @FocusState private var isCodeFocused: Bool
 
     private var email: String { authService.pendingVerificationEmail ?? "" }
@@ -29,6 +30,12 @@ struct EmailVerificationView: View {
                 Text(email)
                     .font(BrandFont.semiBold(15))
                     .foregroundStyle(.gsTextPrimary)
+
+                Button("Wrong email?") {
+                    authService.pendingVerificationEmail = nil
+                }
+                .font(BrandFont.regular(14))
+                .foregroundStyle(.gsBrandPrimary)
             }
 
             // OTP Code field
@@ -52,10 +59,27 @@ struct EmailVerificationView: View {
                 .focused($isCodeFocused)
                 .onChange(of: code) { _, newValue in
                     let filtered = newValue.filter { $0.isWholeNumber }
+                    let normalized: String
                     if filtered.count > 6 {
-                        code = String(filtered.prefix(6))
+                        normalized = String(filtered.prefix(6))
+                        code = normalized
                     } else if filtered != newValue {
-                        code = filtered
+                        normalized = filtered
+                        code = normalized
+                    } else {
+                        normalized = filtered
+                    }
+
+                    if normalized.count == 6,
+                       !authService.isLoading,
+                       normalized != lastSubmittedCode {
+                        lastSubmittedCode = normalized
+                        Task { await authService.verifyEmail(code: normalized) }
+                    }
+                }
+                .onChange(of: authService.errorMessage) { _, newValue in
+                    if newValue != nil {
+                        lastSubmittedCode = ""
                     }
                 }
 

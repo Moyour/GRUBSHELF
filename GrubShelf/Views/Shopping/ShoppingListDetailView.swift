@@ -5,6 +5,7 @@ struct ShoppingListDetailView: View {
     @State private var viewModel: ShoppingListViewModel
     @FocusState private var addFieldFocused: Bool
     @State private var itemToDelete: ShoppingItem?
+    @State private var filterText: String = ""
 
     private let list: ShoppingList
     private let userId: UUID
@@ -46,7 +47,9 @@ struct ShoppingListDetailView: View {
                             .foregroundStyle(.gsSuccess)
                             .frame(width: AppSpacing.iconSizeSmall, height: AppSpacing.iconSizeSmall)
 
-                        Text("All items checked off — ready for pantry")
+                        Text(viewModel.allItemsCompleted
+                             ? "All items checked off — ready for pantry"
+                             : "\(viewModel.transferableItems.count) checked item\(viewModel.transferableItems.count == 1 ? "" : "s") ready for pantry")
                             .font(BrandFont.semiBold(17))
                             .foregroundStyle(.gsTextPrimary)
                             .multilineTextAlignment(.leading)
@@ -112,9 +115,13 @@ struct ShoppingListDetailView: View {
                         showClearButton: true,
                         accessibilityLabel: "Search and add item",
                         onSubmit: {
+                            // When catalog suggestions are visible, "Done" just
+                            // dismisses the keyboard — user should tap a suggestion
+                            // or the explicit "Add" button instead.
                             guard viewModel.catalogSuggestions.isEmpty else { return }
+                            let captured = viewModel.newItemName
                             Task {
-                                await viewModel.addItem()
+                                await viewModel.addItem(overrideName: captured)
                                 viewModel.clearSuggestions()
                             }
                         },
@@ -123,15 +130,32 @@ struct ShoppingListDetailView: View {
                     )
 
                     if let warning = viewModel.duplicateWarning {
-                        HStack(spacing: AppSpacing.denseSpacing) {
-                            Image(systemName: "archivebox.fill")
+                        HStack(alignment: .top, spacing: AppSpacing.smallSpacing) {
+                            Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.gsWarning)
-                                .font(BrandSymbolFont.symbol(12))
-                            Text(warning)
-                                .font(BrandFont.regular(14))
-                                .foregroundStyle(.gsTextSecondary)
+                                .font(BrandSymbolFont.symbol(16))
+                            VStack(alignment: .leading, spacing: AppSpacing.microGap) {
+                                Text("Already in pantry")
+                                    .font(BrandFont.semiBold(14))
+                                    .foregroundStyle(.gsTextPrimary)
+                                Text(warning)
+                                    .font(BrandFont.regular(13))
+                                    .foregroundStyle(.gsTextSecondary)
+                            }
+                            Spacer(minLength: 0)
                         }
+                        .padding(AppSpacing.rowSpacing)
+                        .background(
+                            RoundedRectangle(cornerRadius: AppSpacing.badgeCornerRadius, style: .continuous)
+                                .fill(Color.gsWarningSurface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: AppSpacing.badgeCornerRadius, style: .continuous)
+                                .stroke(Color.gsWarning.opacity(0.5), lineWidth: 1)
+                        )
                         .padding(.top, AppSpacing.compactGap)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Already in pantry. \(warning)")
                     }
 
                     if viewModel.isSearchingCatalog {
@@ -145,18 +169,16 @@ struct ShoppingListDetailView: View {
                         .padding(.top, AppSpacing.smallSpacing)
                     }
 
-                    if !viewModel.catalogSuggestions.isEmpty {
-                        Text("Tap a product below. Use + and − on each item to change quantity.")
-                            .font(BrandFont.regular(13))
-                            .foregroundStyle(.gsTextSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, AppSpacing.smallSpacing)
-                    }
-
+                    // Catalog suggestions — shown first so they're the primary action.
+                    // Each row is keyed by catalog UUID so SwiftUI never
+                    // confuses one item for another during search updates.
                     ForEach(viewModel.catalogSuggestions) { item in
                         Button {
+                            // Freeze search so suggestions can't shift mid-tap.
+                            viewModel.cancelPendingSearch()
+                            let chosen = item
                             Task {
-                                await viewModel.addCatalogItem(item)
+                                await viewModel.addCatalogItem(chosen)
                             }
                         } label: {
                             HStack(spacing: AppSpacing.rowSpacing) {
@@ -166,12 +188,16 @@ struct ShoppingListDetailView: View {
 
                                 VStack(alignment: .leading, spacing: AppSpacing.microGap) {
                                     Text(item.name)
-                                        .font(BrandFont.regular(17))
+                                        .font(BrandFont.medium(17))
                                         .foregroundStyle(.gsTextPrimary)
                                     if let pantryHint = viewModel.pantrySuggestionSubtitle(for: item) {
-                                        Text(pantryHint)
-                                            .font(BrandFont.regular(14))
-                                            .foregroundStyle(.gsWarning)
+                                        HStack(spacing: AppSpacing.denseSpacing) {
+                                            Image(systemName: "archivebox.fill")
+                                                .font(BrandSymbolFont.symbol(11))
+                                            Text(pantryHint)
+                                        }
+                                        .font(BrandFont.regular(14))
+                                        .foregroundStyle(.gsWarning)
                                     }
                                     Text("\(item.defaultCategory) · \(item.defaultUnit.displayName)")
                                         .font(BrandFont.regular(14))
@@ -181,29 +207,40 @@ struct ShoppingListDetailView: View {
                                 Spacer()
                             }
                         }
+                        .buttonStyle(.borderless)
                         .frame(minHeight: AppSpacing.minTouchTarget)
                     }
 
+                    // Free-text add — visible when user has typed 2+ chars.
+                    // Visually distinct from catalog rows (outline icon, italic label).
                     if !viewModel.newItemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         && !viewModel.isSearchingCatalog
-                        && viewModel.catalogSuggestions.isEmpty
                         && viewModel.newItemName.count >= 2 {
+
+                        if !viewModel.catalogSuggestions.isEmpty {
+                            Divider()
+                                .padding(.vertical, AppSpacing.smallSpacing)
+                        }
+
                         Button {
+                            let captured = viewModel.newItemName
+                            viewModel.cancelPendingSearch()
                             Task {
-                                await viewModel.addItem()
+                                await viewModel.addItem(overrideName: captured)
                                 viewModel.clearSuggestions()
                             }
                         } label: {
                             HStack(spacing: AppSpacing.rowSpacing) {
-                                Image(systemName: "plus.circle")
-                                    .foregroundStyle(.gsBrandPrimary)
-                                    .font(BrandSymbolFont.symbol(20))
-                                Text("Add \"\(viewModel.newItemName.trimmingCharacters(in: .whitespacesAndNewlines))\"")
-                                    .font(BrandFont.regular(17))
-                                    .foregroundStyle(.gsTextPrimary)
+                                Image(systemName: "text.badge.plus")
+                                    .foregroundStyle(.gsTextSecondary)
+                                    .font(BrandSymbolFont.symbol(18))
+                                Text("Add \"\(viewModel.newItemName.trimmingCharacters(in: .whitespacesAndNewlines))\" as custom item")
+                                    .font(BrandFont.regular(15))
+                                    .foregroundStyle(.gsTextSecondary)
                                 Spacer()
                             }
                         }
+                        .buttonStyle(.borderless)
                         .frame(minHeight: AppSpacing.minTouchTarget)
                     }
                 }
@@ -242,11 +279,12 @@ struct ShoppingListDetailView: View {
 
             // MARK: - To buy
             Section {
-                ForEach(viewModel.pendingItems) { item in
+                ForEach(filteredPending) { item in
                     ShoppingItemRow(
                         item: item,
                         canToggle: true,
                         isAdjustingQuantity: viewModel.inflightItemIds.contains(item.itemId),
+                        pantryQuantityHint: pantryHint(for: item),
                         onToggle: { Task { await viewModel.toggleComplete(item) } },
                         onIncrementQuantity: { Task { await viewModel.adjustQuantity(itemId: item.itemId, delta: 1) } },
                         onDecrementQuantity: { Task { await viewModel.adjustQuantity(itemId: item.itemId, delta: -1) } }
@@ -276,15 +314,15 @@ struct ShoppingListDetailView: View {
             } header: {
                 shoppingDetailSectionHeader(
                     title: "To buy",
-                    count: viewModel.pendingItems.count,
+                    count: filteredPending.count,
                     emphasis: .standard
                 )
             }
 
             // MARK: - Done
-            if !viewModel.completedItems.isEmpty {
+            if !filteredCompleted.isEmpty {
                 Section {
-                    ForEach(viewModel.completedItems) { item in
+                    ForEach(filteredCompleted) { item in
                         ShoppingItemRow(item: item, canToggle: true) {
                             Task { await viewModel.toggleComplete(item) }
                         }
@@ -316,7 +354,7 @@ struct ShoppingListDetailView: View {
                 } header: {
                     shoppingDetailSectionHeader(
                         title: "Done",
-                        count: viewModel.completedItems.count,
+                        count: filteredCompleted.count,
                         emphasis: .muted
                     )
                 }
@@ -325,6 +363,7 @@ struct ShoppingListDetailView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .frame(maxHeight: .infinity)
+        .searchable(text: $filterText, prompt: "Filter items…")
         .refreshable {
             await viewModel.loadItems()
         }
@@ -416,6 +455,22 @@ struct ShoppingListDetailView: View {
         } message: {
             Text("Remove \"\(itemToDelete?.name ?? "")\" from this list?")
         }
+        .confirmationDialog(
+            "This item is already in your pantry",
+            isPresented: $viewModel.showDuplicateConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Add Anyway") {
+                Task { await viewModel.confirmAddDespiteDuplicate() }
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.cancelDuplicateConfirmation()
+            }
+        } message: {
+            if let match = viewModel.pantryMatchForNewItem {
+                Text(ShoppingListAddBehavior.pantryMatchMessageWithTime(for: match))
+            }
+        }
         .alert("Reject item?", isPresented: $viewModel.showRejectReasonPrompt) {
             TextField("Reason (optional)", text: $viewModel.rejectReasonText)
             Button("Reject", role: .destructive) {
@@ -443,6 +498,18 @@ struct ShoppingListDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .grubShelfShoppingWidgetToggleQueueFlushed)) { _ in
             Task { await viewModel.loadItems() }
         }
+    }
+
+    private var filteredPending: [ShoppingItem] {
+        let items = viewModel.pendingItems
+        guard !filterText.isEmpty else { return items }
+        return items.filter { $0.name.localizedCaseInsensitiveContains(filterText) }
+    }
+
+    private var filteredCompleted: [ShoppingItem] {
+        let items = viewModel.completedItems
+        guard !filterText.isEmpty else { return items }
+        return items.filter { $0.name.localizedCaseInsensitiveContains(filterText) }
     }
 
     private func refreshShoppingListWidgetSnapshot() async {
@@ -480,6 +547,11 @@ struct ShoppingListDetailView: View {
         .foregroundStyle(color)
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel(accessibilityLabelForSection(title: title, count: count))
+    }
+
+    private func pantryHint(for item: ShoppingItem) -> String? {
+        guard let match = ShoppingListAddBehavior.pantryMatch(in: viewModel.pantryItems, name: item.name) else { return nil }
+        return "\(match.quantity.formatted()) in pantry"
     }
 
     private func accessibilityLabelForSection(title: String, count: Int?) -> String {

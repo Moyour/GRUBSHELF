@@ -1,5 +1,17 @@
 # GrubShelf — TestFlight beta guide
 
+## Upload steps
+
+See **[TESTFLIGHT_UPLOAD.md](TESTFLIGHT_UPLOAD.md)** for archive and App Store Connect upload (Xcode or `./scripts/upload_testflight.sh`).
+
+## Before uploading to TestFlight
+
+Complete [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) sections 1–5 (security, green tests, backend verification, push on device, Config.plist).
+
+Record beta feedback against [REGRESSION_EXECUTION_LOG.md](REGRESSION_EXECUTION_LOG.md).
+
+---
+
 **What it is**  
 GrubShelf helps households track the pantry, share shopping lists, set budgets, and get expiry reminders—less waste, clearer spending.
 

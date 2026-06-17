@@ -109,12 +109,10 @@ final class PinnedURLSessionDelegate: NSObject, URLSessionDelegate, URLSessionTa
     }
 
     private static func certificateChain(for trust: SecTrust) -> [SecCertificate] {
-        let count = SecTrustGetCertificateCount(trust)
-        guard count > 0 else { return [] }
-
-        return (0 ..< count).compactMap { index in
-            SecTrustGetCertificateAtIndex(trust, index)
+        guard let certificates = SecTrustCopyCertificateChain(trust) as? [SecCertificate] else {
+            return []
         }
+        return certificates
     }
 }
 

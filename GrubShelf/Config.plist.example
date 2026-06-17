@@ -6,5 +6,9 @@
 	<string>YOUR_SUPABASE_URL</string>
 	<key>SUPABASE_ANON_KEY</key>
 	<string>YOUR_SUPABASE_ANON_KEY</string>
+	<key>GOOGLE_CLIENT_ID</key>
+	<string>YOUR_GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com</string>
+	<key>GOOGLE_WEB_CLIENT_ID</key>
+	<string>YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com</string>
 </dict>
 </plist>

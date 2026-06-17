@@ -207,15 +207,15 @@ struct ShoppingListWidgetEntryView: View {
     private func pendingLineRow(_ line: ShoppingListWidgetPendingLine) -> some View {
         if let itemId = line.itemId {
             Button(intent: MarkShoppingListItemDoneIntent(itemId: itemId)) {
-                pendingLineLabel(title: line.title, showsCheckbox: true)
+                pendingLineLabel(title: line.title, quantity: line.quantity, showsCheckbox: true)
             }
             .buttonStyle(.plain)
         } else {
-            pendingLineLabel(title: line.title, showsCheckbox: false)
+            pendingLineLabel(title: line.title, quantity: line.quantity, showsCheckbox: false)
         }
     }
 
-    private func pendingLineLabel(title: String, showsCheckbox: Bool) -> some View {
+    private func pendingLineLabel(title: String, quantity: Double?, showsCheckbox: Bool) -> some View {
         HStack(alignment: .center, spacing: 8) {
             if showsCheckbox {
                 Image(systemName: "circle")
@@ -228,7 +228,7 @@ struct ShoppingListWidgetEntryView: View {
                     .frame(width: 5, height: 5)
                     .frame(width: 18, height: 18, alignment: .center)
             }
-            Text(title)
+            Text(formattedTitle(title: title, quantity: quantity))
                 .font(.caption)
                 .foregroundStyle(ShoppingListWidgetChrome.onDark.opacity(0.92))
                 .lineLimit(1)
@@ -236,6 +236,14 @@ struct ShoppingListWidgetEntryView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    private func formattedTitle(title: String, quantity: Double?) -> String {
+        guard let qty = quantity, qty > 1 else { return title }
+        let formatted = qty.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", qty)  // "2" not "2.0"
+            : String(format: "%.1f", qty)  // "2.5"
+        return "\(title) ×\(formatted)"
     }
 }
 
@@ -253,9 +261,9 @@ struct ShoppingListWidgetEntryView: View {
                     listId: UUID(),
                     name: "Saturday run",
                     pendingSamples: [
-                        ShoppingListWidgetPendingLine(itemId: UUID(), title: "Oats"),
-                        ShoppingListWidgetPendingLine(itemId: UUID(), title: "Bananas"),
-                        ShoppingListWidgetPendingLine(itemId: UUID(), title: "Yogurt"),
+                        ShoppingListWidgetPendingLine(itemId: UUID(), title: "Oats", quantity: 1),
+                        ShoppingListWidgetPendingLine(itemId: UUID(), title: "Bananas", quantity: 2),
+                        ShoppingListWidgetPendingLine(itemId: UUID(), title: "Yogurt", quantity: 3.5),
                     ],
                     pendingCount: 5,
                     completedCount: 0

@@ -8,6 +8,7 @@ final class EngagementStore {
     private let appOpenKey = "engagement_appOpenDates"
     private let notificationTapKey = "engagement_notificationTapDates"
     private let shoppingActionKey = "engagement_shoppingActionDates"
+    private let expiringReviewKey = "engagement_lastExpiringReviewAt"
     private let maxStored = 100
     private let defaultHour = 9
 
@@ -23,6 +24,17 @@ final class EngagementStore {
 
     func recordShoppingAction() {
         appendDate(to: shoppingActionKey)
+    }
+
+    func recordExpiringItemsReview(referenceDate: Date = .now) {
+        defaults.set(referenceDate.timeIntervalSince1970, forKey: expiringReviewKey)
+    }
+
+    func reviewedExpiringItemsToday(referenceDate: Date = .now, calendar: Calendar = .current) -> Bool {
+        let timestamp = defaults.double(forKey: expiringReviewKey)
+        guard timestamp > 0 else { return false }
+        let reviewedAt = Date(timeIntervalSince1970: timestamp)
+        return calendar.startOfDay(for: reviewedAt) == calendar.startOfDay(for: referenceDate)
     }
 
     /// Returns hour (0–23) with highest engagement in last 7–14 days. Fallback: 9.
@@ -48,6 +60,14 @@ final class EngagementStore {
         return best?.key ?? defaultHour
     }
 
+    /// True when the user already opened the app today at or after the preferred digest hour.
+    func openedAppAfterNotificationHour(preferredHour: Int, referenceDate: Date = .now, calendar: Calendar = .current) -> Bool {
+        guard let lastOpen = loadDates(forKey: appOpenKey).last else { return false }
+        let today = calendar.startOfDay(for: referenceDate)
+        guard calendar.startOfDay(for: lastOpen) == today else { return false }
+        return calendar.component(.hour, from: lastOpen) >= preferredHour
+    }
+
     /// Returns weekday (1=Sunday … 7=Saturday) with most shopping actions in last 4 weeks, or nil if insufficient data.
     func preferredShoppingWeekday() -> Int? {
         let calendar = Calendar.current
@@ -64,6 +84,13 @@ final class EngagementStore {
         }
 
         return weekdayCounts.max(by: { $0.value < $1.value })?.key
+    }
+
+    /// Number of distinct calendar days the user has opened the app.
+    func distinctActiveDays(calendar: Calendar = .current) -> Int {
+        let dates = loadDates(forKey: appOpenKey)
+        let uniqueDays = Set(dates.map { calendar.startOfDay(for: $0) })
+        return uniqueDays.count
     }
 
     private func appendDate(to key: String) {

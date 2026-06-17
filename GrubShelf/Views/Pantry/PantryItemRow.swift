@@ -67,7 +67,10 @@ struct PantryItemRow: View {
             .modifier(OptionalTapGestureModifier(action: onTapEdit))
 
             VStack(alignment: .trailing, spacing: AppSpacing.denseSpacing) {
-                if let badgeStatus = badgeStatus {
+                if item.approvalStatus != .approved {
+                    ApprovalStatusBadge(status: item.approvalStatus)
+                        .fixedSize(horizontal: true, vertical: true)
+                } else if let badgeStatus = badgeStatus {
                     StatusBadgeView(status: badgeStatus)
                         .fixedSize(horizontal: true, vertical: true)
                 }

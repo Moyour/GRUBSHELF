@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PantryReviewView: View {
     @State private var viewModel: PantryReviewViewModel
+    @State private var itemToMarkUsed: PantryItem?
     @Environment(\.dismiss) private var dismiss
 
     init(viewModel: PantryReviewViewModel) {
@@ -68,6 +69,20 @@ struct PantryReviewView: View {
                 Button("Cancel", role: .cancel) {
                     viewModel.cancelRemovalFlow()
                 }
+            }
+            .alert("Mark as used?", isPresented: .init(
+                get: { itemToMarkUsed != nil },
+                set: { if !$0 { itemToMarkUsed = nil } }
+            )) {
+                Button("Mark as used") {
+                    if let item = itemToMarkUsed {
+                        Task { await viewModel.markFinished(item) }
+                    }
+                    itemToMarkUsed = nil
+                }
+                Button("Cancel", role: .cancel) { itemToMarkUsed = nil }
+            } message: {
+                Text("This will remove \"\(itemToMarkUsed?.name ?? "")\" from your pantry.")
             }
         }
     }
@@ -154,7 +169,7 @@ struct PantryReviewView: View {
                 .accessibilityLabel("Still have it")
 
                 Button {
-                    viewModel.markFinished(item)
+                    Task { await viewModel.markFinished(item) }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(BrandSymbolFont.symbol(22))
@@ -173,5 +188,29 @@ struct PantryReviewView: View {
         .listRowInsets(AppSpacing.listRowCardInsets)
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
+        .contextMenu {
+            Button {
+                itemToMarkUsed = item
+            } label: {
+                Label("Used", systemImage: "checkmark.circle")
+            }
+            Button {
+                viewModel.showRemovalOptions(for: item)
+            } label: {
+                Label("More options…", systemImage: "ellipsis.circle")
+            }
+            Button(role: .destructive) {
+                viewModel.beginWasteRemoval(for: item)
+            } label: {
+                Label("Track as waste", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                viewModel.beginWasteRemoval(for: item)
+            } label: {
+                Label("Waste", systemImage: "trash")
+            }
+        }
     }
 }

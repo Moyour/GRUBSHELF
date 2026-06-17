@@ -98,40 +98,15 @@ final class SupabaseShoppingListRepository: ShoppingListRepository {
     }
 
     func observeChanges(householdId: UUID) -> AsyncStream<[ShoppingList]> {
-        AsyncStream { continuation in
-            let channel = client.realtimeV2.channel("shopping_lists_\(householdId.uuidString)")
-
-            let task = Task {
-                let changes = channel.postgresChange(
-                    AnyAction.self,
-                    schema: "public",
-                    table: "shopping_lists",
-                    filter: .eq("household_id", value: householdId)
-                )
-
-                try? await channel.subscribeWithError()
-
-                var debounceTask: Task<Void, Never>?
-                for await _ in changes {
-                    debounceTask?.cancel()
-                    debounceTask = Task {
-                        try? await Task.sleep(for: .milliseconds(300))
-                        guard !Task.isCancelled else { return }
-                        do {
-                            let lists = try await self.fetchAll(householdId: householdId)
-                            continuation.yield(lists)
-                        } catch {
-                            Logger(subsystem: "com.grubshelf", category: "ShoppingLists")
-                                .error("Failed to fetch shopping lists: \(error.localizedDescription)")
-                        }
-                    }
-                }
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-                Task { await channel.unsubscribe() }
-            }
+        observeWithDebounce(
+            client: client,
+            channelName: "shopping_lists_\(householdId.uuidString)",
+            table: "shopping_lists",
+            filterColumn: "household_id",
+            filterValue: householdId,
+            logCategory: "ShoppingLists"
+        ) { [self] in
+            try await fetchAll(householdId: householdId)
         }
     }
 }

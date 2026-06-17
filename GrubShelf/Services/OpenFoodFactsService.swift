@@ -30,7 +30,7 @@ enum BarcodeError: LocalizedError {
 struct OpenFoodFactsService {
     private static let logger = Logger(subsystem: "com.grubshelf", category: "BarcodeScanner")
 
-    private static let lookupRateLimiter = RateLimiter(maxAttempts: 30, window: 60)
+    private static let lookupRateLimiter = RateLimiter(maxAttempts: 30, window: 60, persistenceKey: "GrubShelf.rateLimit.barcodeScanner")
 
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default

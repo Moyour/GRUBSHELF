@@ -1,4 +1,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  buildHouseholdInviteEmailContent,
+  buildHouseholdInvitePlainText,
+  sendInviteViaResend,
+} from "./invite_email.ts";
 
 type HouseholdInviteRow = {
   invite_id: string;
@@ -22,20 +27,25 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
+  const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
+    console.error("Missing SUPABASE_URL, SUPABASE_ANON_KEY, or SUPABASE_SERVICE_ROLE_KEY");
     return json({ error: "Server misconfigured" }, 500);
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  // User-scoped client for auth verification only
+  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } },
   });
 
-  const { data: userData, error: authError } = await supabase.auth.getUser();
+  const { data: userData, error: authError } = await userClient.auth.getUser();
   if (authError || !userData.user) {
     return json({ error: "Invalid session" }, 401);
   }
   const userId = userData.user.id;
+
+  // Service-role client for data queries (bypasses RLS)
+  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
   let body: unknown;
   try {
@@ -55,7 +65,9 @@ Deno.serve(async (req) => {
 
   const { data: invite, error: inviteError } = await supabase
     .from("household_invites")
-    .select("invite_id, household_id, invited_email, invited_by, status, expires_at, households(name)")
+    .select(
+      "invite_id, household_id, invited_email, invited_by, status, expires_at, households(name)",
+    )
     .eq("invite_id", inviteId)
     .single();
 
@@ -97,43 +109,89 @@ Deno.serve(async (req) => {
 
   const inviterName = inviter?.name ?? "A household admin";
 
-  const resendKey = Deno.env.get("RESEND_API_KEY");
-  if (!resendKey) {
-    console.error("RESEND_API_KEY not set");
-    return json({ error: "Email not configured" }, 503);
-  }
+  const { subject, html } = buildHouseholdInviteEmailContent({
+    householdName,
+    inviterName,
+    invitedEmail: row.invited_email,
+    inviteId: row.invite_id,
+  });
 
-  const from =
+  const plainText = buildHouseholdInvitePlainText({
+    householdName,
+    inviterName,
+    invitedEmail: row.invited_email,
+    inviteId: row.invite_id,
+  });
+
+  const resendKey = Deno.env.get("RESEND_API_KEY");
+  const resendFrom =
     Deno.env.get("HOUSEHOLD_INVITE_EMAIL_FROM") ??
     "GrubShelf <onboarding@resend.dev>";
 
-  const subject = `You're invited to join ${householdName} on GrubShelf`;
-  const html = `<p>Hi,</p>
-<p><strong>${escapeHtml(inviterName)}</strong> invited you to join <strong>${escapeHtml(householdName)}</strong> on GrubShelf.</p>
-<p>Open the GrubShelf app and sign in or sign up with <strong>${escapeHtml(row.invited_email)}</strong> to see and accept the invite.</p>
-<p>If you did not expect this message, you can ignore this email.</p>`;
-
-  const resendRes = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${resendKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [row.invited_email],
+  if (resendKey) {
+    const sent = await sendInviteViaResend({
+      apiKey: resendKey,
+      from: resendFrom,
+      to: row.invited_email,
       subject,
       html,
-    }),
-  });
-
-  if (!resendRes.ok) {
-    const detail = await resendRes.text();
-    console.error("Resend failed", resendRes.status, detail);
-    return json({ error: "Failed to send email" }, 502);
+      text: plainText,
+    });
+    if (!sent.ok) {
+      console.error("Resend send failed:", sent.status, sent.body);
+      return json({ error: "Failed to send email" }, 502);
+    }
+    const inviteEmailSender = /\bonboarding@resend\.dev\b/i.test(resendFrom)
+      ? "resend_onboarding"
+      : "resend";
+    return json({ ok: true, invite_email_sender: inviteEmailSender }, 200);
   }
 
-  return json({ ok: true }, 200);
+  const smtpHost = Deno.env.get("SMTP_HOST");
+  const smtpPort = parseInt(Deno.env.get("SMTP_PORT") ?? "587", 10);
+  const smtpUser = Deno.env.get("SMTP_USER");
+  const smtpPass = Deno.env.get("SMTP_PASS");
+
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    console.error(
+      "Email not configured: set RESEND_API_KEY (and optionally HOUSEHOLD_INVITE_EMAIL_FROM), or SMTP_HOST, SMTP_USER, SMTP_PASS",
+    );
+    return json(
+      {
+        error: "Email not configured",
+        hint:
+          "Set secret RESEND_API_KEY (recommended) and HOUSEHOLD_INVITE_EMAIL_FROM, or SMTP_HOST, SMTP_USER, SMTP_PASS on the send-household-invite function.",
+      },
+      503,
+    );
+  }
+
+  const { SMTPClient } = await import("denomailer");
+  const smtp = new SMTPClient({
+    connection: {
+      hostname: smtpHost,
+      port: smtpPort,
+      tls: true,
+      auth: { username: smtpUser, password: smtpPass },
+    },
+  });
+
+  try {
+    await smtp.connect();
+    await smtp.send({
+      from: smtpUser,
+      to: row.invited_email,
+      subject,
+      html,
+    });
+  } catch (err) {
+    console.error("SMTP send failed:", err);
+    return json({ error: "Failed to send email" }, 502);
+  } finally {
+    await smtp.close();
+  }
+
+  return json({ ok: true, invite_email_sender: "smtp" }, 200);
 });
 
 function json(body: Record<string, unknown>, status: number): Response {
@@ -141,12 +199,4 @@ function json(body: Record<string, unknown>, status: number): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }

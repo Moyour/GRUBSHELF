@@ -1,4 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { SMTPClient } from "denomailer";
+import { requireServiceRole } from "../_shared/service_role_auth.ts";
 
 /**
  * Daily digest Edge Function — triggered by pg_cron.
@@ -8,8 +10,7 @@ import { createClient } from "@supabase/supabase-js";
  *  - Items below low-stock threshold
  *  - Budget status (if a budget is configured)
  *
- * Requires RESEND_API_KEY and uses the service role key
- * (set automatically for cron-invoked functions).
+ * Uses Office365 SMTP via env vars SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS.
  */
 
 type PantryRow = {
@@ -42,16 +43,22 @@ Deno.serve(async (req) => {
     return json({ error: "Method not allowed" }, 405);
   }
 
+  const authFailure = requireServiceRole(req, json);
+  if (authFailure) return authFailure;
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const resendKey = Deno.env.get("RESEND_API_KEY");
+  const smtpHost = Deno.env.get("SMTP_HOST");
+  const smtpPort = parseInt(Deno.env.get("SMTP_PORT") ?? "587", 10);
+  const smtpUser = Deno.env.get("SMTP_USER");
+  const smtpPass = Deno.env.get("SMTP_PASS");
 
   if (!supabaseUrl || !serviceRoleKey) {
     console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
     return json({ error: "Server misconfigured" }, 500);
   }
-  if (!resendKey) {
-    console.error("RESEND_API_KEY not set");
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    console.error("Missing SMTP_HOST, SMTP_USER, or SMTP_PASS");
     return json({ error: "Email not configured" }, 503);
   }
 
@@ -69,62 +76,103 @@ Deno.serve(async (req) => {
     return json({ error: "Failed to fetch users" }, 500);
   }
 
-  const from =
-    Deno.env.get("DIGEST_EMAIL_FROM") ??
-    "GrubShelf <onboarding@resend.dev>";
+  // denomailer 1.6.0 contract:
+  //   tls: true  -> implicit TLS from start (use with port 465)
+  //   tls: false -> plain start + STARTTLS upgrade (use with port 587 / 25)
+  // Office365's submission port is 587 (STARTTLS).
+  const smtp = new SMTPClient({
+    connection: {
+      hostname: smtpHost,
+      port: smtpPort,
+      tls: smtpPort === 465,
+      auth: { username: smtpUser, password: smtpPass },
+    },
+  });
 
   let sent = 0;
   let skipped = 0;
+  let errors = 0;
+  let smtpFailure: string | null = null;
+  const eligible = (users as UserRow[])?.filter(
+    (u) => u.household_id && u.email
+  ).length ?? 0;
 
-  for (const user of (users as UserRow[]) ?? []) {
-    if (!user.household_id || !user.email) {
-      skipped++;
-      continue;
-    }
-
-    try {
-      const sections = await buildDigestSections(
-        supabase,
-        user.household_id,
-        user.user_id
-      );
-
-      if (sections.length === 0) {
+  try {
+    // denomailer 1.6.0 opens the SMTP connection lazily on the first send();
+    // there is no public connect()/connectTLS() method (removed in v1.0).
+    for (const user of (users as UserRow[]) ?? []) {
+      if (!user.household_id || !user.email) {
         skipped++;
-        continue; // Nothing to report
+        continue;
       }
 
-      const html = renderDigestEmail(user.name, sections);
+      try {
+        const sections = await buildDigestSections(
+          supabase,
+          user.household_id,
+          user.user_id
+        );
 
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${resendKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from,
-          to: [user.email],
+        if (sections.length === 0) {
+          skipped++;
+          continue; // Nothing to report
+        }
+
+        const html = renderDigestEmail(user.name, sections);
+
+        await smtp.send({
+          from: smtpUser,
+          to: user.email,
           subject: "Your GrubShelf daily digest",
           html,
-        }),
-      });
+        });
 
-      if (!res.ok) {
-        const detail = await res.text();
-        console.error(
-          `Resend failed for ${user.email}: ${res.status} ${detail}`
-        );
-      } else {
         sent++;
+      } catch (err) {
+        errors++;
+        console.error(`Error processing user ${user.user_id}:`, err);
       }
-    } catch (err) {
-      console.error(`Error processing user ${user.user_id}:`, err);
+    }
+  } catch (err) {
+    // SMTP-level failure (connect, TLS, auth, etc.). Without this catch the
+    // error escapes Deno.serve and the cron caller just sees a bare
+    // "Internal Server Error", with no JSON body to diagnose.
+    smtpFailure = err instanceof Error
+      ? `${err.name}: ${err.message}`
+      : String(err);
+    console.error("SMTP transport failure:", smtpFailure);
+  } finally {
+    try {
+      await smtp.close();
+    } catch (closeErr) {
+      console.error("Error closing SMTP connection:", closeErr);
     }
   }
 
-  console.log(`Daily digest complete: sent=${sent}, skipped=${skipped}`);
-  return json({ ok: true, sent, skipped }, 200);
+  console.log(
+    `Daily digest complete: sent=${sent}, skipped=${skipped}, errors=${errors}, eligible=${eligible}, smtp_failure=${smtpFailure ?? "none"}`
+  );
+
+  if (smtpFailure) {
+    return json(
+      {
+        ok: false,
+        error: "smtp_transport_failure",
+        message: smtpFailure,
+        sent,
+        skipped,
+        errors,
+        eligible,
+      },
+      502,
+    );
+  }
+
+  // Return non-200 when no emails were sent but there were eligible users
+  if (sent === 0 && eligible > 0) {
+    return json({ ok: false, sent, skipped, errors, eligible }, 207);
+  }
+  return json({ ok: true, sent, skipped, errors, eligible }, 200);
 });
 
 // ---------------------------------------------------------------------------

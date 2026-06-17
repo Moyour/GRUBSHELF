@@ -2,8 +2,20 @@ import Foundation
 import os
 import Supabase
 
-    /// Insert-only payload that omits `transferred` (uses DB default).
-    private struct ShoppingItemInsert: Encodable {
+private func isMissingShoppingApprovalColumnError(_ error: Error) -> Bool {
+    guard let pg = error as? PostgrestError else { return false }
+    guard pg.code == "PGRST204" else { return false }
+    return pg.message.localizedCaseInsensitiveContains("approval_status")
+}
+
+private func isMissingShoppingCatalogIdColumnError(_ error: Error) -> Bool {
+    guard let pg = error as? PostgrestError else { return false }
+    guard pg.code == "PGRST204" else { return false }
+    return pg.message.localizedCaseInsensitiveContains("catalog_item_id")
+}
+
+/// Insert-only payload that omits `transferred` (uses DB default).
+private struct ShoppingItemInsert: Encodable {
         let itemId: UUID
         let householdId: UUID
         let listId: UUID?
@@ -15,6 +27,8 @@ import Supabase
         let createdBy: UUID
         let createdAt: Date
         let updatedAt: Date
+        let approvalStatus: ApprovalStatus
+        let catalogItemId: UUID?
 
         enum CodingKeys: String, CodingKey {
             case itemId = "item_id"
@@ -24,11 +38,30 @@ import Supabase
             case createdBy = "created_by"
             case createdAt = "created_at"
             case updatedAt = "updated_at"
+            case approvalStatus = "approval_status"
+            case catalogItemId = "catalog_item_id"
         }
-    }
 
-    /// Update-only payload — omits immutable fields and `transferred`.
-    private struct ShoppingItemUpdate: Encodable {
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(itemId, forKey: .itemId)
+            try container.encode(householdId, forKey: .householdId)
+            try container.encodeIfPresent(listId, forKey: .listId)
+            try container.encode(name, forKey: .name)
+            try container.encode(quantity, forKey: .quantity)
+            try container.encodeIfPresent(unit, forKey: .unit)
+            try container.encodeIfPresent(category, forKey: .category)
+            try container.encode(completed, forKey: .completed)
+            try container.encode(createdBy, forKey: .createdBy)
+            try container.encode(createdAt, forKey: .createdAt)
+            try container.encode(updatedAt, forKey: .updatedAt)
+            try container.encode(approvalStatus, forKey: .approvalStatus)
+            try container.encodeIfPresent(catalogItemId, forKey: .catalogItemId)
+        }
+}
+
+/// Update-only payload — omits immutable fields and `transferred`.
+private struct ShoppingItemUpdate: Encodable {
         let name: String
         let quantity: Double
         let unit: UnitType?
@@ -40,10 +73,10 @@ import Supabase
             case name, quantity, unit, category, completed
             case updatedAt = "updated_at"
         }
-    }
+}
 
-    /// Transfer-specific payload — only sets transferred flag.
-    private struct ShoppingItemTransferUpdate: Encodable {
+/// Transfer-specific payload — only sets transferred flag.
+private struct ShoppingItemTransferUpdate: Encodable {
         let transferred: Bool
         let updatedAt: Date
 
@@ -51,7 +84,7 @@ import Supabase
             case transferred
             case updatedAt = "updated_at"
         }
-    }
+}
 
 final class SupabaseShoppingRepository: ShoppingRepository {
     private let client: SupabaseClient
@@ -81,7 +114,83 @@ final class SupabaseShoppingRepository: ShoppingRepository {
     }
 
     func add(_ item: ShoppingItem) async throws -> ShoppingItem {
-        let insert = ShoppingItemInsert(
+        do {
+            return try await insertShoppingItem(item, includeApprovalStatus: true)
+        } catch {
+            if isMissingShoppingCatalogIdColumnError(error), item.catalogItemId != nil {
+                throw NSError(
+                    domain: "GrubShelf.ShoppingRepository",
+                    code: 1,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "Shopping list catalog links are not available yet. Apply database migration 068_shopping_items_catalog_id, then try again."
+                    ]
+                )
+            }
+            if isMissingShoppingCatalogIdColumnError(error) {
+                var fallback = item
+                fallback.catalogItemId = nil
+                return try await insertShoppingItem(fallback, includeApprovalStatus: true)
+            }
+            if isMissingShoppingApprovalColumnError(error) {
+                return try await insertShoppingItem(item, includeApprovalStatus: false)
+            }
+            throw error
+        }
+    }
+
+    private func insertShoppingItem(_ item: ShoppingItem, includeApprovalStatus: Bool) async throws -> ShoppingItem {
+        if includeApprovalStatus {
+            let insert = ShoppingItemInsert(
+                itemId: item.itemId,
+                householdId: item.householdId,
+                listId: item.listId,
+                name: item.name,
+                quantity: item.quantity,
+                unit: item.unit,
+                category: item.category,
+                completed: item.completed,
+                createdBy: item.createdBy,
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt,
+                approvalStatus: item.approvalStatus,
+                catalogItemId: item.catalogItemId
+            )
+            return try await withRetry { [client] in
+                try await client.from("shopping_items")
+                    .insert(insert)
+                    .select()
+                    .single()
+                    .execute()
+                    .value
+            }
+        }
+
+        struct LegacyInsert: Encodable {
+            let itemId: UUID
+            let householdId: UUID
+            let listId: UUID?
+            let name: String
+            let quantity: Double
+            let unit: UnitType?
+            let category: String?
+            let completed: Bool
+            let createdBy: UUID
+            let createdAt: Date
+            let updatedAt: Date
+
+            enum CodingKeys: String, CodingKey {
+                case itemId = "item_id"
+                case householdId = "household_id"
+                case listId = "list_id"
+                case name, quantity, unit, category, completed
+                case createdBy = "created_by"
+                case createdAt = "created_at"
+                case updatedAt = "updated_at"
+            }
+        }
+
+        let legacy = LegacyInsert(
             itemId: item.itemId,
             householdId: item.householdId,
             listId: item.listId,
@@ -96,7 +205,7 @@ final class SupabaseShoppingRepository: ShoppingRepository {
         )
         return try await withRetry { [client] in
             try await client.from("shopping_items")
-                .insert(insert)
+                .insert(legacy)
                 .select()
                 .single()
                 .execute()
@@ -150,78 +259,28 @@ final class SupabaseShoppingRepository: ShoppingRepository {
     }
 
     func observeChanges(householdId: UUID) -> AsyncStream<[ShoppingItem]> {
-        AsyncStream { continuation in
-            let channel = client.realtimeV2.channel("shopping_\(householdId.uuidString)")
-
-            let task = Task {
-                let changes = channel.postgresChange(
-                    AnyAction.self,
-                    schema: "public",
-                    table: "shopping_items",
-                    filter: .eq("household_id", value: householdId)
-                )
-
-                try? await channel.subscribeWithError()
-
-                var debounceTask: Task<Void, Never>?
-                for await _ in changes {
-                    debounceTask?.cancel()
-                    debounceTask = Task {
-                        try? await Task.sleep(for: .milliseconds(300))
-                        guard !Task.isCancelled else { return }
-                        do {
-                            let items = try await self.fetchAll(householdId: householdId)
-                            continuation.yield(items)
-                        } catch {
-                            Logger(subsystem: "com.grubshelf", category: "ShoppingItems")
-                                .error("Failed to fetch shopping items: \(error.localizedDescription)")
-                        }
-                    }
-                }
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-                Task { await channel.unsubscribe() }
-            }
+        observeWithDebounce(
+            client: client,
+            channelName: "shopping_\(householdId.uuidString)",
+            table: "shopping_items",
+            filterColumn: "household_id",
+            filterValue: householdId,
+            logCategory: "ShoppingItems"
+        ) { [self] in
+            try await fetchAll(householdId: householdId)
         }
     }
 
     func observeListChanges(listId: UUID) -> AsyncStream<[ShoppingItem]> {
-        AsyncStream { continuation in
-            let channel = client.realtimeV2.channel("shopping_list_\(listId.uuidString)")
-
-            let task = Task {
-                let changes = channel.postgresChange(
-                    AnyAction.self,
-                    schema: "public",
-                    table: "shopping_items",
-                    filter: .eq("list_id", value: listId.uuidString)
-                )
-
-                try? await channel.subscribeWithError()
-
-                var debounceTask: Task<Void, Never>?
-                for await _ in changes {
-                    debounceTask?.cancel()
-                    debounceTask = Task {
-                        try? await Task.sleep(for: .milliseconds(300))
-                        guard !Task.isCancelled else { return }
-                        do {
-                            let items = try await self.fetchByList(listId: listId)
-                            continuation.yield(items)
-                        } catch {
-                            Logger(subsystem: "com.grubshelf", category: "ShoppingItems")
-                                .error("Failed to fetch shopping items: \(error.localizedDescription)")
-                        }
-                    }
-                }
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-                Task { await channel.unsubscribe() }
-            }
+        observeWithDebounce(
+            client: client,
+            channelName: "shopping_list_\(listId.uuidString)",
+            table: "shopping_items",
+            filterColumn: "list_id",
+            filterValue: listId.uuidString,
+            logCategory: "ShoppingItems"
+        ) { [self] in
+            try await fetchByList(listId: listId)
         }
     }
 }

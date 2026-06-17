@@ -42,6 +42,7 @@ targets:
     info:
       path: GrubShelf/Info.plist
       properties:
+        CFBundleDisplayName: GrubShelf
         NSCameraUsageDescription: GrubShelf uses the camera to identify products you add to your pantry.
         NSPhotoLibraryUsageDescription: GrubShelf uses your photo library so you can select product images for pantry item recognition.
         NSPhotoLibraryAddUsageDescription: GrubShelf may save processed pantry photos to your library when you choose to keep them.
@@ -49,17 +50,26 @@ targets:
           - CFBundleURLName: com.grubshelf.auth
             CFBundleURLSchemes:
               - grubshelf
+          - CFBundleURLName: com.google.signin
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.313042839436-tp2chd8q21dv9ics36i5fpff58d4floc
         UIAppFonts:
           - Inter-Variable.ttf
           - Outfit-Variable.ttf
           - IBMPlexMono-Regular.ttf
           - IBMPlexMono-SemiBold.ttf
           - IBMPlexMono-Bold.ttf
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.grubshelf.notifications.refresh
+        ITSAppUsesNonExemptEncryption: false
+        UIBackgroundModes:
+          - fetch
+          - remote-notification
     settings:
       base:
         INFOPLIST_GENERATION_MODE: GeneratedFile
         MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "2"
         GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
         INFOPLIST_KEY_UILaunchScreen_Generation: true
@@ -67,6 +77,9 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         CODE_SIGN_ENTITLEMENTS: GrubShelf/GrubShelf.entitlements
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+      configs:
+        Release:
+          CODE_SIGN_ENTITLEMENTS: GrubShelf/GrubShelfRelease.entitlements
 
   GrubShelfWidget:
     type: app-extension
@@ -90,7 +103,7 @@ targets:
         INFOPLIST_GENERATION_MODE: GeneratedFile
         GENERATE_INFOPLIST_FILE: true
         MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "2"
         CODE_SIGN_ENTITLEMENTS: GrubShelfWidget/GrubShelfWidget.entitlements
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
 
@@ -98,16 +111,15 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: GrubShelfTests
-        excludes:
-          - Fixtures/**
-    resources:
-      - GrubShelfTests/Fixtures
+      - GrubShelfTests
     dependencies:
       - target: GrubShelf
+    entitlements:
+      path: GrubShelfTests/GrubShelfTests.entitlements
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
+        CODE_SIGN_ENTITLEMENTS: GrubShelfTests/GrubShelfTests.entitlements
 
   GrubShelfUITests:
     type: bundle.ui-testing
@@ -128,8 +140,11 @@ schemes:
         GrubShelf: all
         GrubShelfWidget: all
         GrubShelfUITests: [test]
+    run:
+      storeKitConfiguration: GrubShelf/Configuration.storekit
     test:
       targets:
         - GrubShelfTests
         - GrubShelfUITests
       gatherCoverageData: true
+      storeKitConfiguration: GrubShelf/Configuration.storekit

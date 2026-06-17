@@ -26,18 +26,33 @@ final class AddEditPantryItemViewModel {
     var lastRecognitionConfidence: Float?
     var lastRecognitionIsLikelyFood: Bool = true
     var photoRecognitionSuggestions: [String] = []
+    /// When true, the success toast after save is suppressed (used by multi-add hub).
+    var suppressToast = false
+    /// The ID of the most recently saved new item (set after a successful add).
+    private(set) var lastSavedItemId: UUID?
+    /// The full PantryItem of the most recently saved new item.
+    private(set) var lastSavedItem: PantryItem?
 
     let isEditing: Bool
+    /// Exposes the item ID so the view can notify parents on deletion.
+    var deletingItemId: UUID? { existingItem?.itemId }
     private let existingItem: PantryItem?
     private let repository: PantryRepository
     private let householdId: UUID
     private let userId: UUID
+    private let userRole: UserRole
+
+    private var insertsAsApproved: Bool { userRole == .admin }
     /// When set, successful save upserts household barcode → pantry label (scan flow).
     private let scannedBarcodeDigits: String?
     private let barcodeLabelRepository: BarcodeLabelRepository?
     private let photoStorage: PantryPhotoStorage
     /// Catalog row used for this add (from barcode match or search), for optional `catalog_item_id` on the label.
     private let catalogItemIdForBarcodeSave: UUID?
+    /// Optional gate service for enforcing subscription limits on new items.
+    @ObservationIgnored var featureGateService: FeatureGateService?
+    /// Called after a successful new-item add with the created PantryItem.
+    @ObservationIgnored var onSaveSuccess: ((PantryItem) -> Void)?
     private static let logger = Logger(subsystem: "com.grubshelf", category: "PantryEdit")
     private static let lowConfidenceThreshold: Float = 0.45
 
@@ -71,6 +86,7 @@ final class AddEditPantryItemViewModel {
         repository: PantryRepository,
         householdId: UUID,
         userId: UUID,
+        userRole: UserRole = .member,
         existingItem: PantryItem? = nil,
         catalogItem: GroceryCatalogItem? = nil,
         prefillFrom: PantryItem? = nil,
@@ -84,6 +100,7 @@ final class AddEditPantryItemViewModel {
         self.repository = repository
         self.householdId = householdId
         self.userId = userId
+        self.userRole = userRole
         self.existingItem = existingItem
         self.isEditing = existingItem != nil
         self.scannedBarcodeDigits = scannedBarcodeDigits
@@ -140,6 +157,12 @@ final class AddEditPantryItemViewModel {
         }
 
         self.catalogItemIdForBarcodeSave = catalogIdForSave
+
+        // For new items, default expiry to ON — most pantry foods have expiry dates
+        if existingItem == nil && !hasExpiry {
+            hasExpiry = true
+            expiryDate = Date.now.addingTimeInterval(7 * 24 * 60 * 60)
+        }
 
         if quantity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             quantity = "1"
@@ -237,6 +260,28 @@ final class AddEditPantryItemViewModel {
         }
     }
 
+    /// Resets the form fields for "Save & add another" flow.
+    func resetForAnotherItem() {
+        name = ""
+        quantity = "1"
+        selectedUnit = .pcs
+        hasExpiry = false
+        expiryDate = Date.now.addingTimeInterval(7 * 24 * 60 * 60)
+        category = "Other"
+        customCategory = ""
+        selectedStorageLocation = .shelf
+        validationErrors = []
+        errorMessage = nil
+        recognizedPhotoPreview = nil
+        photoRecognitionHint = nil
+        photoRecognitionHintIsError = false
+        photoRecognitionSuggestions = []
+        lastRecognitionConfidence = nil
+        lastRecognitionIsLikelyFood = true
+        lastSavedItemId = nil
+        lastSavedItem = nil
+    }
+
     private func persistBarcodeLabelIfNeeded(trimmedName: String) async {
         guard !isEditing,
               let digits = scannedBarcodeDigits,
@@ -269,7 +314,37 @@ final class AddEditPantryItemViewModel {
         )
     }
 
+    func delete() async -> Bool {
+        guard isEditing, let item = existingItem else { return false }
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            try await withRetry { [repository] in
+                try await repository.delete(itemId: item.itemId)
+            }
+
+            ToastManager.shared.show("\(item.name) deleted", style: .success)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            isLoading = false
+            return true
+        } catch {
+            errorMessage = ErrorHandler.userMessage(for: error, action: "delete item")
+            ToastManager.shared.show(errorMessage!, style: .error)
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            isLoading = false
+            return false
+        }
+    }
+
     func save() async -> Bool {
+        // Check pantry item limit before creating new items
+        if !isEditing, let gate = featureGateService {
+            let allowed = await gate.checkLimit(.pantryItems, householdId: householdId)
+            if !allowed { return false }
+        }
+
         guard validate() else { return false }
 
         isLoading = true
@@ -279,6 +354,11 @@ final class AddEditPantryItemViewModel {
 
         do {
             if isEditing, var item = existingItem {
+                guard userRole == .admin || (item.approvalStatus == .pending && item.createdBy == userId) else {
+                    errorMessage = "You can't edit this item."
+                    isLoading = false
+                    return false
+                }
                 item.name = name.trimmingCharacters(in: .whitespaces)
                 item.quantity = parsedQuantity
                 item.unit = selectedUnit
@@ -292,64 +372,61 @@ final class AddEditPantryItemViewModel {
                 let capturedItem = item
                 _ = try await withRetry { [repository] in try await repository.update(capturedItem) }
             } else {
+                // Always create new pantry item (no auto-merging)
                 let trimmedName = name.trimmingCharacters(in: .whitespaces)
-                let existing = try await repository.fetchAll(householdId: householdId)
-                let match = existing.first { item in
-                    !item.archived &&
-                    item.name.caseInsensitiveCompare(trimmedName) == .orderedSame &&
-                    item.unit == selectedUnit &&
-                    item.storageLocation == selectedStorageLocation &&
-                    item.expiryDate == nil && !hasExpiry
-                }
-
-                if var matched = match {
-                    matched.quantity += parsedQuantity
-                    matched.updatedAt = .now
-                    if let photoPath = try await uploadRecognizedPhotoIfNeeded(itemId: matched.itemId) {
-                        matched.photoPath = photoPath
-                    }
-                    let capturedMatched = matched
-                    _ = try await withRetry { [repository] in try await repository.update(capturedMatched) }
-                    await persistBarcodeLabelIfNeeded(trimmedName: trimmedName)
-                } else {
-                    let itemId = UUID()
-                    let item = PantryItem(
-                        itemId: itemId,
-                        householdId: householdId,
-                        name: trimmedName,
-                        quantity: parsedQuantity,
-                        unit: selectedUnit,
-                        category: resolvedCategory,
-                        storageLocation: selectedStorageLocation,
-                        expiryDate: hasExpiry ? expiryDate : nil,
-                        costPerUnitMinor: nil,
-                        lowStockThreshold: 1,
-                        createdBy: userId,
-                        createdAt: .now,
-                        updatedAt: .now,
-                        archived: false,
-                        lastQuantityUpdateDate: .now,
-                        expectedUsageCycleDays: PantryItem.defaultUsageCycleDays(for: resolvedCategory),
-                        photoPath: try await uploadRecognizedPhotoIfNeeded(itemId: itemId)
-                    )
-                    Self.logger.debug("Inserting pantry item: created_by=\(self.userId), household_id=\(self.householdId)")
-                    _ = try await withRetry { [repository] in try await repository.add(item) }
-                    await persistBarcodeLabelIfNeeded(trimmedName: trimmedName)
-                }
+                let itemId = UUID()
+                let item = PantryItem(
+                    itemId: itemId,
+                    householdId: householdId,
+                    name: trimmedName,
+                    quantity: parsedQuantity,
+                    unit: selectedUnit,
+                    category: resolvedCategory,
+                    storageLocation: selectedStorageLocation,
+                    expiryDate: hasExpiry ? expiryDate : nil,
+                    costPerUnitMinor: nil,
+                    lowStockThreshold: 1,
+                    createdBy: userId,
+                    createdAt: .now,
+                    updatedAt: .now,
+                    archived: false,
+                    lastQuantityUpdateDate: .now,
+                    expectedUsageCycleDays: PantryItem.defaultUsageCycleDays(for: resolvedCategory),
+                    photoPath: try await uploadRecognizedPhotoIfNeeded(itemId: itemId),
+                    approvalStatus: insertsAsApproved ? .approved : .pending
+                )
+                Self.logger.debug("Inserting pantry item: created_by=\(self.userId), household_id=\(self.householdId)")
+                _ = try await withRetry { [repository] in try await repository.add(item) }
+                lastSavedItemId = itemId
+                lastSavedItem = item
+                onSaveSuccess?(item)
+                await persistBarcodeLabelIfNeeded(trimmedName: trimmedName)
             }
 
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.impactOccurred()
 
-            let toastText = isEditing ? "\(name) updated" : "\(name) added to pantry"
-            ToastManager.shared.show(toastText, style: .success)
+            if !suppressToast {
+                let toastText: String
+                if isEditing {
+                    toastText = "\(name) updated"
+                } else if insertsAsApproved {
+                    toastText = "\(name) added to pantry"
+                } else {
+                    toastText = "\(name) submitted for admin approval"
+                }
+                ToastManager.shared.show(toastText, style: .success)
+            }
 
             isLoading = false
             return true
         } catch {
             Self.logger.error("Pantry item save failed: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
-            ToastManager.shared.show("Failed to save item", style: .error)
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "save item"),
+                style: .error
+            )
             isLoading = false
             return false
         }

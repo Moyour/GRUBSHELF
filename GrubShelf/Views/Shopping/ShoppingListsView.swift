@@ -40,7 +40,7 @@ struct ShoppingListsView: View {
                         .accessibilityHint("Shows steps to add the \(BrandCopy.displayName) widget")
                     }
                 }
-                if viewModel.hasLoaded && !viewModel.lists.isEmpty {
+                if viewModel.hasLoaded && !viewModel.lists.isEmpty && viewModel.canCreateShoppingList {
                     ToolbarItem(placement: .topBarTrailing) {
                         PrimaryPlusToolbarButton(
                             accessibilityLabel: "New shopping list",
@@ -101,12 +101,27 @@ struct ShoppingListsView: View {
             } message: {
                 Text("This will permanently delete \"\(listToDelete?.name ?? "")\" and all its items.")
             }
+            .alert("Reject item?", isPresented: $viewModel.showActiveRejectReasonPrompt) {
+                TextField("Reason (optional)", text: $viewModel.activeRejectReasonText)
+                Button("Reject", role: .destructive) {
+                    Task { await viewModel.confirmRejectActiveItem() }
+                }
+                Button("Cancel", role: .cancel) {
+                    viewModel.cancelRejectActiveItem()
+                }
+            } message: {
+                if let item = viewModel.activeItemToReject {
+                    Text("Reject \"\(item.name)\"? The member will see your reason if provided.")
+                }
+            }
             .navigationDestination(for: ShoppingList.self) { list in
                 ShoppingListDetailView(
                     list: list,
                     householdId: viewModel.householdId,
                     userId: viewModel.userId,
-                    currencyCode: financeVM.currencyCode
+                    userRole: viewModel.userRole,
+                    currencyCode: financeVM.currencyCode,
+                    financeVM: financeVM
                 )
             }
             .tint(.gsBrandPrimary)
@@ -116,42 +131,99 @@ struct ShoppingListsView: View {
     // MARK: - Empty State (#2)
 
     private var emptyStateView: some View {
-        ScrollView {
-            VStack(alignment: .center, spacing: AppSpacing.sectionSpacing) {
-                Spacer(minLength: AppSpacing.scrollVerticalBreathingRoom)
+        VStack(alignment: .center, spacing: 20) {
+            Spacer()
 
-                TabEmptyStateHero(
-                    systemName: "cart",
-                    symbolFontSize: EmptyStateMetrics.tabHeroSymbolSizeCompact,
-                    symbolWeight: .bold,
-                    imageAsset: "onboarding-shopping"
-                )
-                .opacity(showEmptyState ? 1 : 0)
-                .scaleEffect(showEmptyState ? 1 : 0.92)
+            // Large hero icon with background circle
+            ZStack {
+                Circle()
+                    .fill(.gsBrandPrimary.opacity(0.08))
+                    .frame(width: 120, height: 120)
 
-                EmptyStateCopyCard(
-                    title: String(localized: "No lists yet"),
-                    subtitle: String(localized: "Start a list when you’re ready—we’ll keep it here.")
-                )
-                .opacity(showEmptyState ? 1 : 0)
-                .offset(y: showEmptyState ? 0 : 12)
-
-                EmptyStateTealCTAButton(
-                    title: String(localized: "New list"),
-                    systemImage: "cart.badge.plus"
-                ) {
-                    viewModel.showCreateSheet = true
-                }
-                .padding(.horizontal, AppSpacing.screenPadding)
-                .opacity(showEmptyState ? 1 : 0)
-                .offset(y: showEmptyState ? 0 : 12)
-
-                Spacer(minLength: AppSpacing.scrollVerticalBreathingRoom)
+                Image(systemName: "cart.fill")
+                    .font(.system(size: 56, weight: .medium))
+                    .foregroundStyle(.gsBrandPrimary)
+                    .symbolRenderingMode(.hierarchical)
             }
-            .frame(maxWidth: .infinity)
-            .multilineTextAlignment(.center)
-            .animation(.spring(response: 0.45, dampingFraction: 0.86).delay(0.12), value: showEmptyState)
-            .onAppear { showEmptyState = true }
+
+            // Title with better typography
+            VStack(spacing: 8) {
+                Text("No Shopping Lists")
+                    .font(BrandFont.semiBold(26))
+                    .foregroundStyle(.gsTextPrimary)
+
+                Text(viewModel.canCreateShoppingList
+                     ? "Create your first list to get started"
+                     : "Ask your household admin to create a list")
+                    .font(BrandFont.regular(16))
+                    .foregroundStyle(.gsTextSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, AppSpacing.screenPadding)
+            }
+
+            // Feature hints - more compact (only for users who can create)
+            if viewModel.canCreateShoppingList {
+                VStack(spacing: 12) {
+                    ShoppingEmptyFeatureRow(
+                        icon: "list.bullet.clipboard",
+                        text: "Organize by store or category"
+                    )
+                    ShoppingEmptyFeatureRow(
+                        icon: "arrow.triangle.2.circlepath",
+                        text: "Sync with pantry inventory"
+                    )
+                    ShoppingEmptyFeatureRow(
+                        icon: "person.2.fill",
+                        text: "Share with family members"
+                    )
+                }
+                .padding(.horizontal, AppSpacing.screenPadding * 2)
+            }
+
+            // CTA button - compact (only if user can create)
+            if viewModel.canCreateShoppingList {
+                Button {
+                    viewModel.showCreateSheet = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text("Create Your First List")
+                            .font(BrandFont.semiBold(17))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: 280)
+                    .padding(.vertical, 14)
+                    .background(.gsBrandPrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .shadow(color: .gsBrandPrimary.opacity(0.3), radius: 8, y: 4)
+                }
+                .padding(.top, 8)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .multilineTextAlignment(.center)
+    }
+
+    // Helper view for feature rows
+    private struct ShoppingEmptyFeatureRow: View {
+        let icon: String
+        let text: String
+
+        var body: some View {
+            HStack(spacing: AppSpacing.rowSpacing) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.gsBrandPrimary)
+                    .frame(width: 24)
+
+                Text(text)
+                    .font(BrandFont.medium(15))
+                    .foregroundStyle(.gsTextSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -239,16 +311,19 @@ struct ShoppingListsView: View {
                 TextField("Add an item...", text: $viewModel.activeListNewItemName)
                     .font(BrandFont.regular(16))
                     .foregroundStyle(.gsTextPrimary)
+                    .autocorrectionDisabled(true)
                     .focused($isActiveAddFieldFocused)
                     .submitLabel(.done)
                     .onSubmit {
+                        guard !viewModel.activeCatalogSuggestionsVisible else { return }
                         Task { await viewModel.addItemToActiveList() }
                     }
                     .onChange(of: viewModel.activeListNewItemName) {
                         viewModel.searchActiveCatalog()
+                        viewModel.checkActivePantryDuplicate(name: viewModel.activeListNewItemName)
                     }
 
-                if !viewModel.activeListNewItemName.isEmpty {
+                if !viewModel.activeListNewItemName.isEmpty, !viewModel.activeCatalogSuggestionsVisible {
                     Button {
                         Task { await viewModel.addItemToActiveList() }
                     } label: {
@@ -270,20 +345,47 @@ struct ShoppingListsView: View {
             .padding(.horizontal, AppSpacing.cardPadding)
             .padding(.vertical, AppSpacing.rowSpacing)
 
+            if let warning = viewModel.activePantryWarning {
+                HStack(spacing: AppSpacing.denseSpacing) {
+                    Image(systemName: "archivebox.fill")
+                        .foregroundStyle(.gsWarning)
+                        .font(BrandSymbolFont.symbol(12))
+                    Text(warning)
+                        .font(BrandFont.regular(14))
+                        .foregroundStyle(.gsTextSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, AppSpacing.cardPadding)
+                .padding(.bottom, AppSpacing.compactGap)
+            }
+
             // Catalog suggestions (right below search)
             if !viewModel.activeCatalogSuggestions.isEmpty {
                 VStack(spacing: 0) {
+                    Text("Tap a product below. Use + and − on each item to change quantity.")
+                        .font(BrandFont.regular(13))
+                        .foregroundStyle(.gsTextSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, AppSpacing.cardPadding)
+                        .padding(.top, AppSpacing.smallSpacing)
                     Divider().padding(.horizontal, AppSpacing.cardPadding)
-                    ForEach(viewModel.activeCatalogSuggestions, id: \.name) { item in
+                    ForEach(viewModel.activeCatalogSuggestions) { item in
                         Button {
                             Task { await viewModel.addActiveCatalogItem(item) }
                         } label: {
                             HStack(spacing: AppSpacing.rowSpacing) {
                                 Text(ItemIconMapper.emoji(for: item.name, category: item.defaultCategory))
                                     .font(.system(size: 16))
-                                Text(item.name)
-                                    .font(BrandFont.regular(15))
-                                    .foregroundStyle(.gsTextPrimary)
+                                VStack(alignment: .leading, spacing: AppSpacing.microGap) {
+                                    Text(item.name)
+                                        .font(BrandFont.regular(15))
+                                        .foregroundStyle(.gsTextPrimary)
+                                    if let pantryHint = viewModel.activePantrySuggestionSubtitle(for: item) {
+                                        Text(pantryHint)
+                                            .font(BrandFont.regular(13))
+                                            .foregroundStyle(.gsWarning)
+                                    }
+                                }
                                 Spacer()
                                 Image(systemName: "plus.circle")
                                     .font(BrandSymbolFont.symbol(16))
@@ -297,13 +399,41 @@ struct ShoppingListsView: View {
                 }
             }
 
+            if viewModel.isAdmin && !viewModel.activeListAwaitingApproval.isEmpty {
+                PendingApprovalShoppingSection(
+                    items: viewModel.activeListAwaitingApproval,
+                    isAdmin: true,
+                    onApprove: { item in Task { await viewModel.approveActiveItem(item) } },
+                    onReject: { item in viewModel.beginRejectActiveItem(item) }
+                )
+                Divider().padding(.horizontal, AppSpacing.cardPadding)
+            } else if !viewModel.isAdmin && !viewModel.activeListAwaitingApproval.isEmpty {
+                PendingApprovalShoppingSection(
+                    items: viewModel.activeListAwaitingApproval.filter { $0.createdBy == viewModel.userId },
+                    isAdmin: false
+                )
+                Divider().padding(.horizontal, AppSpacing.cardPadding)
+            }
+
             // Pending items (beneath search bar)
             ForEach(viewModel.activeListPendingItems) { item in
-                ShoppingItemRow(item: item) {
-                    Task { await viewModel.toggleActiveItem(item) }
-                }
+                ShoppingItemRow(
+                    item: item,
+                    canToggle: true,
+                    isAdjustingQuantity: viewModel.inflightItemIds.contains(item.itemId),
+                    onToggle: { Task { await viewModel.toggleActiveItem(item) } },
+                    onIncrementQuantity: { Task { await viewModel.adjustActiveQuantity(itemId: item.itemId, delta: 1) } },
+                    onDecrementQuantity: { Task { await viewModel.adjustActiveQuantity(itemId: item.itemId, delta: -1) } }
+                )
                 .padding(.horizontal, AppSpacing.smallSpacing)
                 .padding(.vertical, AppSpacing.compactGap)
+            }
+
+            // Inline transfer CTA — only after every item on the list is checked off.
+            if viewModel.hasActiveTransferableItems {
+                inlineTransferBanner(list: list)
+            } else if list.transferred {
+                inlineTransferredBadge()
             }
 
             // Done section
@@ -352,12 +482,98 @@ struct ShoppingListsView: View {
             await viewModel.loadActiveListItems()
         }
         .contextMenu {
-            Button(role: .destructive) {
-                listToDelete = list
-            } label: {
-                Label("Delete", systemImage: "trash")
+            if viewModel.canDeleteShoppingList {
+                Button(role: .destructive) {
+                    listToDelete = list
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
         }
+        .sheet(isPresented: $viewModel.showActiveTransferSheet, onDismiss: {
+            Task {
+                await viewModel.refreshAfterActiveTransfer()
+                await financeVM.loadData(forceRefresh: true)
+            }
+        }) {
+            activeTransferSheet(list: list)
+        }
+    }
+
+    // MARK: - Inline transfer CTA
+
+    private func inlineTransferBanner(list: ShoppingList) -> some View {
+        let count = viewModel.transferableActiveListItems.count
+        let title = "Move \(count) item\(count == 1 ? "" : "s") to pantry"
+        let subtitle = viewModel.allActiveListItemsCompleted
+            ? "Everything's checked off — add them to your pantry."
+            : "Tap to move checked items to your pantry."
+
+        return Button {
+            Task { await viewModel.prepareActiveTransfer() }
+        } label: {
+            HStack(spacing: AppSpacing.rowSpacing) {
+                ZStack {
+                    Circle()
+                        .fill(Color.gsSuccess.opacity(0.15))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(BrandSymbolFont.symbol(18, weight: .semibold))
+                        .foregroundStyle(.gsSuccess)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(BrandFont.semiBold(15))
+                        .foregroundStyle(.gsTextPrimary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(BrandFont.regular(13))
+                        .foregroundStyle(.gsTextSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: AppSpacing.smallSpacing)
+
+                Text("Transfer")
+                    .font(BrandFont.semiBold(14))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, AppSpacing.smallSpacing)
+                    .padding(.vertical, AppSpacing.compactGap)
+                    .background(Color.gsSuccess, in: Capsule())
+            }
+            .padding(.horizontal, AppSpacing.cardPadding)
+            .padding(.vertical, AppSpacing.smallSpacing)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
+        .accessibilityHint("Opens the transfer-to-pantry sheet")
+    }
+
+    private func inlineTransferredBadge() -> some View {
+        HStack(spacing: AppSpacing.smallSpacing) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(BrandSymbolFont.symbol(14, weight: .semibold))
+                .foregroundStyle(.gsSuccess)
+            Text("Transferred to pantry")
+                .font(BrandFont.medium(13))
+                .foregroundStyle(.gsTextSecondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, AppSpacing.cardPadding)
+        .padding(.vertical, AppSpacing.smallSpacing)
+    }
+
+    private func activeTransferSheet(list: ShoppingList) -> some View {
+        TransferFlowSheet(
+            transferableItems: viewModel.transferableActiveListItems,
+            pantryItems: viewModel.activeListPantryItems,
+            householdId: list.householdId,
+            userId: viewModel.userId,
+            listId: list.listId,
+            currencyCode: financeVM.currencyCode
+        )
     }
 
     // MARK: - Other Lists Section
@@ -382,10 +598,12 @@ struct ShoppingListsView: View {
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    Button(role: .destructive) {
-                        listToDelete = list
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+                    if viewModel.canDeleteShoppingList {
+                        Button(role: .destructive) {
+                            listToDelete = list
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
                     }
                 }
             }

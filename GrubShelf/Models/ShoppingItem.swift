@@ -13,8 +13,16 @@ struct ShoppingItem: Codable, Identifiable, Equatable, Sendable {
     let createdBy: UUID
     let createdAt: Date
     var updatedAt: Date
+    var approvalStatus: ApprovalStatus
+    var approvedBy: UUID?
+    var approvedAt: Date?
+    var rejectionReason: String?
+    /// Canonical grocery catalog product id (each catalog row has a unique UUID).
+    var catalogItemId: UUID?
 
     var id: UUID { itemId }
+
+    var isApproved: Bool { approvalStatus == .approved }
 
     enum CodingKeys: String, CodingKey {
         case itemId = "item_id"
@@ -24,9 +32,32 @@ struct ShoppingItem: Codable, Identifiable, Equatable, Sendable {
         case createdBy = "created_by"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case approvalStatus = "approval_status"
+        case approvedBy = "approved_by"
+        case approvedAt = "approved_at"
+        case rejectionReason = "rejection_reason"
+        case catalogItemId = "catalog_item_id"
     }
 
-    init(itemId: UUID, householdId: UUID, listId: UUID?, name: String, quantity: Double, unit: UnitType?, category: String?, completed: Bool, transferred: Bool = false, createdBy: UUID, createdAt: Date, updatedAt: Date) {
+    init(
+        itemId: UUID,
+        householdId: UUID,
+        listId: UUID?,
+        name: String,
+        quantity: Double,
+        unit: UnitType?,
+        category: String?,
+        completed: Bool,
+        transferred: Bool = false,
+        createdBy: UUID,
+        createdAt: Date,
+        updatedAt: Date,
+        approvalStatus: ApprovalStatus = .approved,
+        approvedBy: UUID? = nil,
+        approvedAt: Date? = nil,
+        rejectionReason: String? = nil,
+        catalogItemId: UUID? = nil
+    ) {
         self.itemId = itemId
         self.householdId = householdId
         self.listId = listId
@@ -39,6 +70,11 @@ struct ShoppingItem: Codable, Identifiable, Equatable, Sendable {
         self.createdBy = createdBy
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.approvalStatus = approvalStatus
+        self.approvedBy = approvedBy
+        self.approvedAt = approvedAt
+        self.rejectionReason = rejectionReason
+        self.catalogItemId = catalogItemId
     }
 
     init(from decoder: Decoder) throws {
@@ -55,5 +91,10 @@ struct ShoppingItem: Codable, Identifiable, Equatable, Sendable {
         createdBy = try container.decode(UUID.self, forKey: .createdBy)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        approvalStatus = try container.decodeIfPresent(ApprovalStatus.self, forKey: .approvalStatus) ?? .approved
+        approvedBy = try container.decodeIfPresent(UUID.self, forKey: .approvedBy)
+        approvedAt = try container.decodeIfPresent(Date.self, forKey: .approvedAt)
+        rejectionReason = try container.decodeIfPresent(String.self, forKey: .rejectionReason)
+        catalogItemId = try container.decodeIfPresent(UUID.self, forKey: .catalogItemId)
     }
 }

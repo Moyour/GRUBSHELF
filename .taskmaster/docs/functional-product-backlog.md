@@ -6,6 +6,8 @@
 
 - [x] **P0 — Today queue on Home** — Prioritized “Today’s actions” card (max 5): expiring → low stock → shopping → budget → stale review; single place for urgent work.
 - [x] **P0 — Dedup Overview sheet** — Full overview sheet hides the insights carousel (same signals as Home queue + Insights tab).
+- [x] **P1 — Transfer-to-pantry clarity** — Single `TransferFlowSheet` (audit + required trip total + confirm); prefilled total; `cost_logged` on transfer.
+- [x] **P1 — Receipt log single-sheet** — `ReceiptFlowSheet` replaces nested scan/confirm sheets; budget-only logging with honest copy.
 
 ## Remaining
 
@@ -30,7 +32,7 @@ See sections below; check boxes as you complete work.
 | Done | Task |
 |------|------|
 | [ ] | Shop mode (large type, list focus) |
-| [ ] | Transfer-to-pantry clarity pass |
+| [x] | Transfer-to-pantry clarity pass |
 
 ### P2 — Money & household
 

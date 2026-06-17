@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shown after the user opens the password-reset link from email (Supabase establishes a recovery session via the deep link).
+/// Shown after the user verifies the password-reset OTP (Supabase recovery session awaits `update(password:)`).
 struct CompletePasswordResetView: View {
     @Bindable var authService: AuthenticationService
     @State private var newPassword = ""
@@ -27,7 +27,7 @@ struct CompletePasswordResetView: View {
 
                 Section {
                     Text(
-                        "Your email link was verified. Enter a strong password to finish resetting your account."
+                        "Your code was verified. Enter a strong password to finish resetting your account."
                     )
                     .font(BrandFont.regular(14))
                     .foregroundStyle(.gsTextSecondary)
@@ -98,7 +98,7 @@ struct CompletePasswordResetView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        Task { await authService.abandonPasswordResetAfterLinkFlow() }
+                        Task { await authService.abandonPasswordResetFlow() }
                     }
                 }
             }

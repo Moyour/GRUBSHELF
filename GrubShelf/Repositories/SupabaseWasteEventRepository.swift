@@ -33,8 +33,8 @@ final class SupabaseWasteEventRepository: WasteEventRepository {
     }
 
     func fetchByDateRange(householdId: UUID, start: Date, end: Date) async throws -> [WasteEvent] {
-        let startStr = ISO8601DateFormatter().string(from: start)
-        let endStr = ISO8601DateFormatter().string(from: end)
+        let startStr = ISO8601DateFormatter.shared.string(from: start)
+        let endStr = ISO8601DateFormatter.shared.string(from: end)
         return try await withRetry { [client] in
             try await client.from("waste_events")
                 .select()
@@ -48,45 +48,20 @@ final class SupabaseWasteEventRepository: WasteEventRepository {
     }
 
     func observeChanges(householdId: UUID) -> AsyncStream<[WasteEvent]> {
-        AsyncStream { continuation in
-            let channel = client.realtimeV2.channel("waste_events_\(householdId.uuidString)")
-
-            let task = Task {
-                let changes = channel.postgresChange(
-                    AnyAction.self,
-                    schema: "public",
-                    table: "waste_events",
-                    filter: .eq("household_id", value: householdId)
-                )
-
-                try? await channel.subscribeWithError()
-
-                var debounceTask: Task<Void, Never>?
-                for await _ in changes {
-                    debounceTask?.cancel()
-                    debounceTask = Task {
-                        try? await Task.sleep(for: .milliseconds(300))
-                        guard !Task.isCancelled else { return }
-                        do {
-                            let events: [WasteEvent] = try await self.client.from("waste_events")
-                                .select()
-                                .eq("household_id", value: householdId.uuidString)
-                                .order("date", ascending: false)
-                                .execute()
-                                .value
-                            continuation.yield(events)
-                        } catch {
-                            Logger(subsystem: "com.grubshelf", category: "WasteEvents")
-                                .error("Failed to fetch waste events: \(error.localizedDescription)")
-                        }
-                    }
-                }
-            }
-
-            continuation.onTermination = { _ in
-                task.cancel()
-                Task { await channel.unsubscribe() }
-            }
+        observeWithDebounce(
+            client: client,
+            channelName: "waste_events_\(householdId.uuidString)",
+            table: "waste_events",
+            filterColumn: "household_id",
+            filterValue: householdId,
+            logCategory: "WasteEvents"
+        ) { [self] in
+            try await client.from("waste_events")
+                .select()
+                .eq("household_id", value: householdId.uuidString)
+                .order("date", ascending: false)
+                .execute()
+                .value
         }
     }
 }

@@ -14,6 +14,15 @@ enum PantryAttentionMode: Equatable {
     case none
     case expiring
     case lowStock
+    case pending
+}
+
+enum PantrySortOrder: String, CaseIterable {
+    case name = "Name"
+    case expiryDate = "Expiry"
+    case dateAdded = "Newest"
+    case category = "Category"
+    case quantity = "Quantity"
 }
 
 /// Deep-link / Home queue: which pantry segment and optional urgency filter to apply.
@@ -33,6 +42,7 @@ final class PantryViewModel {
     var errorMessage: String?
     var selectedLocationFilter: PantryLocationFilter = .all
     var selectedAttention: PantryAttentionMode = .none
+    var selectedSort: PantrySortOrder = .name
     var searchText: String = ""
     var confidenceScores: [UUID: Double] = [:]
     var itemToEdit: PantryItem?
@@ -49,6 +59,55 @@ final class PantryViewModel {
     /// IDs of pantry items currently involved in an async mutation.
     /// Views use this to disable per-item action buttons while a call is in flight.
     private(set) var inflightItemIds: Set<UUID> = []
+
+    /// Recently deleted item available for undo (auto-clears after timeout).
+    private(set) var undoableItem: PantryItem?
+    private var undoClearTask: Task<Void, Never>?
+
+    // MARK: - Bulk selection
+    var isSelectingMultiple = false
+    var selectedItemIds: Set<UUID> = []
+
+    var selectedItemCount: Int { selectedItemIds.count }
+
+    func toggleSelection(_ item: PantryItem) {
+        if selectedItemIds.contains(item.itemId) {
+            selectedItemIds.remove(item.itemId)
+        } else {
+            selectedItemIds.insert(item.itemId)
+        }
+    }
+
+    func selectAll() {
+        selectedItemIds = Set(filteredItems.map(\.itemId))
+    }
+
+    func deselectAll() {
+        selectedItemIds.removeAll()
+    }
+
+    func exitSelectionMode() {
+        isSelectingMultiple = false
+        selectedItemIds.removeAll()
+    }
+
+    func bulkDelete() async {
+        let idsToDelete = selectedItemIds
+        guard !idsToDelete.isEmpty else { return }
+        exitSelectionMode()
+        var deleted = 0
+        for id in idsToDelete {
+            do {
+                try await withRetry { [repository] in try await repository.delete(itemId: id) }
+                withAnimation { items.removeAll { $0.itemId == id } }
+                deleted += 1
+            } catch {
+                // Continue trying others
+            }
+        }
+        ToastManager.shared.show("\(deleted) item\(deleted == 1 ? "" : "s") removed", style: .success)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
 
     let repository: PantryRepository
     let householdId: UUID
@@ -102,7 +161,13 @@ final class PantryViewModel {
     }
 
     var filteredItems: [PantryItem] {
-        var result = approvedItems
+        var result: [PantryItem]
+
+        if selectedAttention == .pending {
+            result = pendingApprovalItems
+        } else {
+            result = approvedItems
+        }
 
         switch selectedLocationFilter {
         case .all:
@@ -114,7 +179,7 @@ final class PantryViewModel {
         }
 
         switch selectedAttention {
-        case .none:
+        case .none, .pending:
             break
         case .expiring:
             result = result.filter { $0.state == .expiringSoon || $0.state == .expired }
@@ -127,6 +192,24 @@ final class PantryViewModel {
                 $0.name.localizedCaseInsensitiveContains(searchText) ||
                 $0.category.localizedCaseInsensitiveContains(searchText)
             }
+        }
+
+        switch selectedSort {
+        case .name:
+            result.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .expiryDate:
+            result.sort { ($0.expiryDate ?? .distantFuture) < ($1.expiryDate ?? .distantFuture) }
+        case .dateAdded:
+            result.sort { $0.createdAt > $1.createdAt }
+        case .category:
+            result.sort {
+                if $0.category == $1.category {
+                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+                return $0.category < $1.category
+            }
+        case .quantity:
+            result.sort { $0.quantity < $1.quantity }
         }
 
         return result
@@ -454,11 +537,57 @@ final class PantryViewModel {
         }
     }
 
-    /// Marks an item as used and removes it from the pantry (no outcome dialog).
+    /// Marks an item as used and removes it from the pantry with undo support.
     func markFinished(_ item: PantryItem) async {
         guard canModifyItem(item) else { return }
-        itemToRemove = item
-        await confirmUsed(outcomeLabel: "Used")
+        guard inflightItemIds.insert(item.itemId).inserted else { return }
+        defer { inflightItemIds.remove(item.itemId) }
+        stopObserving()
+
+        // Optimistic removal from UI
+        withAnimation { items.removeAll { $0.itemId == item.itemId } }
+
+        // Store for undo
+        undoClearTask?.cancel()
+        undoableItem = item
+
+        do {
+            try await withRetry { [repository] in
+                try await repository.delete(itemId: item.itemId)
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            // Start undo timer — after 5 seconds, clear undo option
+            undoClearTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                self?.undoableItem = nil
+            }
+        } catch {
+            // Rollback — put item back
+            withAnimation { items.append(item) }
+            undoableItem = nil
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "remove \(item.name)"),
+                style: .error
+            )
+        }
+        resumeObserving()
+    }
+
+    /// Re-adds the last deleted item (undo).
+    func undoLastDelete() async {
+        guard let item = undoableItem else { return }
+        undoClearTask?.cancel()
+        undoableItem = nil
+        do {
+            let restored = try await withRetry { [repository] in try await repository.add(item) }
+            withAnimation { items.append(restored) }
+            ToastManager.shared.show("\(restored.name) restored", style: .success)
+        } catch {
+            ToastManager.shared.show(
+                ErrorHandler.userMessage(for: error, action: "restore \(item.name)"),
+                style: .error
+            )
+        }
     }
 
     /// Opens the full outcome menu (Used / Remove / Expired / Waste) for power users.

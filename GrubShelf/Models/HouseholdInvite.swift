@@ -17,8 +17,11 @@ struct HouseholdInvite: Codable, Identifiable, Equatable, Sendable {
 
     enum InviteStatus: String, Codable, Sendable {
         case pending
+        case approved
+        case rejected
         case accepted
         case cancelled
+        case expired
     }
 
     enum CodingKeys: String, CodingKey {

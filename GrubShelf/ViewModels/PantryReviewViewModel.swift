@@ -60,7 +60,12 @@ final class PantryReviewViewModel {
         }
     }
 
-    func markFinished(_ item: PantryItem) {
+    func markFinished(_ item: PantryItem) async {
+        itemToRemove = item
+        await confirmUsed()
+    }
+
+    func showRemovalOptions(for item: PantryItem) {
         itemToRemove = item
         showRemovalPrompt = true
     }
@@ -70,7 +75,7 @@ final class PantryReviewViewModel {
         do {
             try await repository.delete(itemId: item.itemId)
             staleItems.removeAll { $0.itemId == item.itemId }
-            ToastManager.shared.show("\(item.name) removed", style: .success)
+            ToastManager.shared.show("Used \(item.name)", style: .success)
         } catch {
             ToastManager.shared.show("Failed to delete \(item.name)", style: .error)
         }
@@ -89,12 +94,14 @@ final class PantryReviewViewModel {
         clearRemovalFlowState()
     }
 
-    func beginExpiredRemoval() {
+    func beginExpiredRemoval(for item: PantryItem? = nil) {
+        if let item { itemToRemove = item }
         pendingWasteSource = .expired
         showWasteCostPrompt = true
     }
 
-    func beginWasteRemoval() {
+    func beginWasteRemoval(for item: PantryItem? = nil) {
+        if let item { itemToRemove = item }
         pendingWasteSource = .waste
         showWasteCostPrompt = true
     }
@@ -122,8 +129,9 @@ final class PantryReviewViewModel {
         )
         do {
             _ = try await wasteEventRepository.add(event)
+            ToastManager.shared.show("Waste tracked", style: .success)
         } catch {
-            ToastManager.shared.show("Couldn’t save that waste note", style: .error)
+            ToastManager.shared.show("Couldn't save that waste note", style: .error)
         }
 
         await confirmRemoveFromList()

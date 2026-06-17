@@ -4,6 +4,7 @@ struct FamilyMembersView: View {
     let members: [AppUser]
     let pendingInvites: [HouseholdInvite]
     let currentUserRole: UserRole
+    let currentUserIsOwner: Bool
     let onToggleRole: (AppUser) -> Void
     let onRemove: (AppUser) -> Void
     let onCancelInvite: (HouseholdInvite) -> Void
@@ -18,46 +19,57 @@ struct FamilyMembersView: View {
     }
 
     private var sortedMembers: [AppUser] {
-        members.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+        members.sorted(by: AppUser.householdOrder)
+    }
+
+    private var hasAnyRows: Bool {
+        !sortedInvites.isEmpty || !sortedMembers.isEmpty
     }
 
     var body: some View {
         List {
-            Section {
-                if sortedInvites.isEmpty && sortedMembers.isEmpty {
+            if !hasAnyRows {
+                Section {
                     Text("No members yet. Invite someone to share this household.")
                         .font(BrandFont.regular(15))
                         .foregroundStyle(.gsTextSecondary)
                         .padding(.vertical, AppSpacing.smallSpacing)
                         .listRowBackground(Color.clear)
                 }
+            }
 
-                ForEach(sortedInvites) { invite in
-                    inviteRow(invite)
-                        .listRowInsets(AppSpacing.listRowCardInsets)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-
-                ForEach(sortedMembers) { member in
-                    memberRow(member)
-                        .listRowInsets(AppSpacing.listRowCardInsets)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-            } header: {
-                HStack {
-                    Text("Household")
-                    Spacer()
-                    if !sortedInvites.isEmpty {
-                        Text("\(sortedInvites.count) pending")
-                            .font(BrandFont.medium(13))
-                            .foregroundStyle(.gsBrandPrimary)
+            if !sortedMembers.isEmpty {
+                Section {
+                    ForEach(sortedMembers) { member in
+                        memberRow(member)
+                            .listRowInsets(AppSpacing.listRowCardInsets)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                } header: {
+                    Text("Members")
+                } footer: {
+                    if PermissionService.canPerform(.manageMembers, role: currentUserRole, isOwner: currentUserIsOwner) {
+                        Text("Swipe a row to manage roles, remove members, or cancel invites.")
+                            .font(BrandFont.regular(13))
                     }
                 }
-                .foregroundStyle(.gsTextSecondary)
+            }
+
+            if !sortedInvites.isEmpty {
+                Section {
+                    ForEach(sortedInvites) { invite in
+                        inviteRow(invite)
+                            .listRowInsets(AppSpacing.listRowCardInsets)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                } header: {
+                    Text("Invited")
+                } footer: {
+                    Text("Pending means they aren’t in the household yet. They need GrubShelf and must sign in with the invited email to join.")
+                        .font(BrandFont.regular(13))
+                }
             }
         }
         .listStyle(.plain)
@@ -71,7 +83,7 @@ struct FamilyMembersView: View {
             await onRefresh?()
         }
         .toolbar {
-            if currentUserRole == .admin {
+            if PermissionService.canPerform(.manageMembers, role: currentUserRole, isOwner: currentUserIsOwner) {
                 ToolbarItem(placement: .topBarTrailing) {
                     PrimaryToolbarIconButton(
                         systemImage: "person.badge.plus",
@@ -122,21 +134,11 @@ struct FamilyMembersView: View {
                     .foregroundStyle(expired ? .gsWarning : .gsBrandPrimary)
             }
 
-            VStack(alignment: .leading, spacing: AppSpacing.microGap) {
-                Text(invite.invitedEmail)
-                    .font(BrandFont.semiBold(17))
-                    .foregroundStyle(.gsTextPrimary)
-
-                if expired {
-                    Text("Invite expired — send a new one or cancel this row.")
-                        .font(BrandFont.regular(14))
-                        .foregroundStyle(.gsWarning)
-                } else {
-                    Text("Waiting to join · Expires \(invite.expiresAt, style: .relative)")
-                        .font(BrandFont.regular(14))
-                        .foregroundStyle(.gsTextSecondary)
-                }
-            }
+            Text(invite.invitedEmail)
+                .font(BrandFont.semiBold(17))
+                .foregroundStyle(.gsTextPrimary)
+                .lineLimit(1)
+                .truncationMode(.middle)
 
             Spacer(minLength: AppSpacing.smallSpacing)
 
@@ -156,7 +158,7 @@ struct FamilyMembersView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(invite.invitedEmail), \(expired ? "expired invite" : "pending invite")")
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if currentUserRole == .admin {
+            if PermissionService.canPerform(.manageMembers, role: currentUserRole, isOwner: currentUserIsOwner) {
                 Button(role: .destructive) {
                     inviteToCancel = invite
                 } label: {
@@ -178,36 +180,41 @@ struct FamilyMembersView: View {
             }
             .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: AppSpacing.microGap) {
-                Text(member.name)
-                    .font(BrandFont.semiBold(17))
-                    .foregroundStyle(.gsTextPrimary)
-
-                Text(member.email)
-                    .font(BrandFont.regular(14))
-                    .foregroundStyle(.gsTextSecondary)
-            }
+            Text(member.name)
+                .font(BrandFont.semiBold(17))
+                .foregroundStyle(.gsTextPrimary)
 
             Spacer(minLength: AppSpacing.smallSpacing)
 
-            Text(member.role.rawValue.capitalized)
+            Text(memberRoleLabel(member))
                 .font(BrandFont.medium(13))
                 .padding(.horizontal, AppSpacing.smallSpacing)
                 .padding(.vertical, AppSpacing.compactGap)
-                .background(member.role == .admin ? .gsBrandPrimary.opacity(0.15) : .gsBackground)
-                .foregroundStyle(member.role == .admin ? .gsBrandPrimary : .gsTextSecondary)
+                .background(
+                    member.isOwner || member.role == .admin
+                        ? .gsBrandPrimary.opacity(0.15)
+                        : .gsBackground
+                )
+                .foregroundStyle(
+                    member.isOwner || member.role == .admin
+                        ? .gsBrandPrimary
+                        : .gsTextSecondary
+                )
                 .clipShape(Capsule())
         }
         .padding(AppSpacing.cardPadding)
         .frame(minHeight: AppSpacing.minTouchTarget)
         .dashboardCardSurface()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(member.name), \(member.email), \(member.role.rawValue)")
+        .accessibilityLabel("\(member.name), \(memberRoleLabel(member))")
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if currentUserRole == .admin {
+            if PermissionService.canPerform(.manageMembers, role: currentUserRole, isOwner: currentUserIsOwner),
+               !member.isOwner {
                 Button(role: .destructive) { memberToRemove = member } label: {
                     Label("Remove", systemImage: "person.badge.minus")
                 }
+            }
+            if currentUserIsOwner, !member.isOwner {
                 Button { onToggleRole(member) } label: {
                     Label(
                         member.role == .admin ? "Demote" : "Promote",
@@ -219,11 +226,18 @@ struct FamilyMembersView: View {
         }
     }
 
+    private func memberRoleLabel(_ member: AppUser) -> String {
+        MemberRoleLabel.display(for: member)
+    }
+
     private func statusLabel(_ status: HouseholdInvite.InviteStatus) -> String {
         switch status {
         case .pending: "Pending"
+        case .approved: "Approved"
+        case .rejected: "Rejected"
         case .accepted: "Joined"
         case .cancelled: "Cancelled"
+        case .expired: "Expired"
         }
     }
 }

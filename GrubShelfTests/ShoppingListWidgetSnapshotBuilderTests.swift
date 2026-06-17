@@ -133,11 +133,11 @@ struct ShoppingListWidgetSnapshotBuilderTests {
             transferred: false
         )
 
-        UserDefaults(suiteName: ShoppingListWidgetAppGroup.identifier)?
-            .set(pinned.listId.uuidString, forKey: "shoppingWidgetPinnedListId")
+        let widgetDefaults = UserDefaults(suiteName: ShoppingListWidgetAppGroup.identifier)
+        widgetDefaults?.removeObject(forKey: "shoppingWidgetPinnedListId")
+        widgetDefaults?.set(pinned.listId.uuidString, forKey: "shoppingWidgetPinnedListId")
         defer {
-            UserDefaults(suiteName: ShoppingListWidgetAppGroup.identifier)?
-                .removeObject(forKey: "shoppingWidgetPinnedListId")
+            widgetDefaults?.removeObject(forKey: "shoppingWidgetPinnedListId")
         }
 
         let snapshot = ShoppingListWidgetSnapshotBuilder.build(lists: [busier, pinned], items: [])
@@ -211,6 +211,7 @@ struct ShoppingListWidgetSnapshotBuilderTests {
         )
         ShoppingListWidgetPreferences.setPinnedList(list.listId)
         defer { ShoppingListWidgetPreferences.clearPinnedList() }
+        #expect(ShoppingListWidgetPreferences.pinnedListId() == list.listId)
 
         ShoppingListWidgetPreferences.clearStalePinIfNeeded(activeNonTransferredListIds: [list.listId])
 
@@ -255,5 +256,119 @@ struct ShoppingListWidgetSnapshotBuilderTests {
         #expect(snap.lists.first?.pendingSamples.count == 2)
         #expect(snap.lists.first?.pendingSamples.allSatisfy { $0.itemId == nil } == true)
         #expect(snap.lists.first?.pendingSampleTitles == ["A", "B"])
+    }
+
+    @Test func includesQuantityInPendingLines() {
+        let hid = UUID()
+        let uid = UUID()
+        let list = ShoppingList(
+            listId: UUID(),
+            householdId: hid,
+            name: "Weekly",
+            createdBy: uid,
+            createdAt: .now,
+            updatedAt: .now,
+            transferred: false
+        )
+
+        let milk = ShoppingItem(
+            itemId: UUID(),
+            householdId: hid,
+            listId: list.listId,
+            name: "Milk",
+            quantity: 2,
+            unit: nil,
+            category: nil,
+            completed: false,
+            transferred: false,
+            createdBy: uid,
+            createdAt: .now,
+            updatedAt: .now
+        )
+
+        let eggs = ShoppingItem(
+            itemId: UUID(),
+            householdId: hid,
+            listId: list.listId,
+            name: "Eggs",
+            quantity: 3.5,
+            unit: nil,
+            category: nil,
+            completed: false,
+            transferred: false,
+            createdBy: uid,
+            createdAt: .now,
+            updatedAt: .now
+        )
+
+        let bread = ShoppingItem(
+            itemId: UUID(),
+            householdId: hid,
+            listId: list.listId,
+            name: "Bread",
+            quantity: 1,
+            unit: nil,
+            category: nil,
+            completed: false,
+            transferred: false,
+            createdBy: uid,
+            createdAt: .now,
+            updatedAt: .now
+        )
+
+        let snapshot = ShoppingListWidgetSnapshotBuilder.build(
+            lists: [list],
+            items: [milk, eggs, bread]
+        )
+
+        #expect(snapshot.lists.count == 1)
+        #expect(snapshot.lists.first?.pendingSamples.count == 3)
+
+        // Verify quantities are included in pending lines
+        let milkLine = snapshot.lists.first?.pendingSamples.first { $0.title == "Milk" }
+        let eggsLine = snapshot.lists.first?.pendingSamples.first { $0.title == "Eggs" }
+        let breadLine = snapshot.lists.first?.pendingSamples.first { $0.title == "Bread" }
+
+        #expect(milkLine?.quantity == 2)
+        #expect(eggsLine?.quantity == 3.5)
+        #expect(breadLine?.quantity == 1)
+    }
+
+    @Test func decodesSnapshotWithoutQuantityFieldForBackwardCompatibility() throws {
+        // Simulates snapshot created by older app version without quantity field
+        let listId = UUID()
+        let itemId = UUID()
+        let json = """
+        {"updatedAt":"2020-01-01T00:00:00Z","lists":[{"listId":"\(listId.uuidString)","name":"L","pendingSamples":[{"itemId":"\(itemId.uuidString)","title":"Milk"}],"pendingCount":1,"completedCount":0}],"totalPendingCount":1}
+        """.data(using: .utf8)!
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        let snap = try dec.decode(ShoppingListWidgetSnapshot.self, from: json)
+
+        #expect(snap.lists.first?.pendingSamples.count == 1)
+        let line = snap.lists.first?.pendingSamples.first
+        #expect(line?.itemId == itemId)
+        #expect(line?.title == "Milk")
+        #expect(line?.quantity == nil) // Should be nil for backward compatibility
+    }
+
+    @Test func encodesAndDecodesQuantityFieldCorrectly() throws {
+        let line = ShoppingListWidgetPendingLine(
+            itemId: UUID(),
+            title: "Flour",
+            quantity: 2.5
+        )
+
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        let data = try enc.encode([line])
+
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        let decoded = try dec.decode([ShoppingListWidgetPendingLine].self, from: data)
+
+        #expect(decoded.count == 1)
+        #expect(decoded.first?.title == "Flour")
+        #expect(decoded.first?.quantity == 2.5)
     }
 }

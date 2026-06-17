@@ -74,6 +74,14 @@ struct EmailAuthView: View {
                     }
                 }
 
+                if !isSignUp && !password.isEmpty && password.count < 8 {
+                    Section {
+                        Text("Password must be at least 8 characters")
+                            .font(BrandFont.regular(13))
+                            .foregroundStyle(.gsTextSecondary)
+                    }
+                }
+
                 if let error = authService.errorMessage {
                     Section {
                         Text(error)
@@ -148,11 +156,9 @@ struct EmailAuthView: View {
     // MARK: - Validation
 
     private var isFormValid: Bool {
-        let emailPattern = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
-        let emailValid = email.range(of: emailPattern, options: .regularExpression) != nil
-        let passwordValid = isSignUp ? isPasswordStrong : password.count >= 6
-        let nameValid = !isSignUp || !name.trimmingCharacters(in: .whitespaces).isEmpty
-        return emailValid && passwordValid && nameValid
+        let passwordValid = isSignUp ? isPasswordStrong : password.count >= 8
+        let nameValid = !isSignUp || !name.trimmed.isEmpty
+        return email.isValidEmail && passwordValid && nameValid
     }
 
     private var hasSpecialCharacter: Bool {
